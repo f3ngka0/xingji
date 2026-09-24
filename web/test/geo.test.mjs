@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { getLongGapThresholdMs, sortPositions, wgs84ToGcj02 } from '../.test-dist/lib/geo.js';
-import { PublicTripSchema } from '../.test-dist/types.js';
+import { PositionsResponseSchema, PublicTripResponseSchema, PublicTripSchema } from '../.test-dist/types.js';
 
 function point(id, capturedAt) {
   return {
     id,
-    tripId: 'trip-1',
     lat: 39.915,
     lon: 116.404,
     capturedAt,
@@ -64,4 +64,18 @@ test('accepts a trip without an origin or destination', () => {
   });
   assert.equal(trip.destination, null);
   assert.equal(trip.origin, null);
+});
+
+test('accepts the public API fixture without private trip identifiers', async () => {
+  const tripFixture = JSON.parse(await readFile(new URL('./fixtures/public-trip.json', import.meta.url), 'utf8'));
+  const positionsFixture = JSON.parse(await readFile(new URL('./fixtures/public-positions.json', import.meta.url), 'utf8'));
+
+  const tripResponse = PublicTripResponseSchema.parse(tripFixture);
+  const positionsResponse = PositionsResponseSchema.parse(positionsFixture);
+
+  assert.equal(tripResponse.trip.destination, null);
+  assert.equal(tripResponse.trip.latestPosition?.id, 'point-001');
+  assert.equal(Object.hasOwn(tripResponse.trip.latestPosition ?? {}, 'tripId'), false);
+  assert.equal(positionsResponse.points[0]?.sequence, 1);
+  assert.equal(Object.hasOwn(positionsResponse.points[0] ?? {}, 'tripId'), false);
 });

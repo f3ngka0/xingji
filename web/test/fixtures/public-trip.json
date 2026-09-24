@@ -1,0 +1,29 @@
+{
+  "trip": {
+    "title": "我的位置共享",
+    "origin": null,
+    "destination": null,
+    "status": "active",
+    "startedAt": "2026-09-24T11:00:00.000Z",
+    "endedAt": null,
+    "sampleIntervalSec": 300,
+    "uploadIntervalSec": 300,
+    "mode": "standard",
+    "latestPositionAt": "2026-09-24T11:05:00.000Z",
+    "pointCount": 1,
+    "latestPosition": {
+      "id": "point-001",
+      "lat": 23.4765,
+      "lon": 111.3051,
+      "capturedAt": "2026-09-24T11:05:00.000Z",
+      "receivedAt": "2026-09-24T11:05:02.000Z",
+      "accuracyM": 12.5,
+      "speedMps": null,
+      "speedAccuracyMps": null,
+      "source": "fused",
+      "sequence": 1,
+      "isOutlier": false,
+      "coordinateSystem": "WGS84"
+    }
+  }
+}

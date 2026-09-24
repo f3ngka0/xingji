@@ -8,7 +8,6 @@ export const PlaceSchema = z.object({
 
 export const PositionSchema = z.object({
   id: z.string().min(1),
-  tripId: z.string().min(1),
   lat: z.number().finite().gte(-90).lte(90),
   lon: z.number().finite().gte(-180).lte(180),
   capturedAt: z.string().datetime({ offset: true }),
