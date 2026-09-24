@@ -13,6 +13,7 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "trips")
@@ -69,8 +70,11 @@ data class PositionEntity(
 
 @Dao
 interface TripDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun putTrip(trip: TripEntity)
+    @Update
+    suspend fun updateTrip(trip: TripEntity): Int
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertTrip(trip: TripEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertPoint(point: PositionEntity): Long
@@ -131,6 +135,11 @@ interface TripDao {
 
     @Query("UPDATE trips SET shareRevokedAt = :revokedAt WHERE id = :id")
     suspend fun setRevoked(id: String, revokedAt: String)
+
+    @Transaction
+    suspend fun putTrip(trip: TripEntity) {
+        if (updateTrip(trip) == 0) insertTrip(trip)
+    }
 
     @Transaction
     suspend fun saveTripAndPoint(trip: TripEntity, point: PositionEntity) {
