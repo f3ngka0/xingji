@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
+    "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "tsc src/lib/geo.ts src/types.ts --target ES2022 --module ES2022 --moduleResolution bundler --rootDir src --outDir .test-dist --skipLibCheck --noEmitOnError && node --test test/*.test.mjs"
   },
