@@ -1,5 +1,11 @@
 {$PUBLIC_HOST} {
     encode zstd gzip
+    handle /api/* {
+        reverse_proxy server:3000
+    }
+    handle /_AMapService/* {
+        reverse_proxy server:3000
+    }
     handle /healthz {
         reverse_proxy server:3000
     }
