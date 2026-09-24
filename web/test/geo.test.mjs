@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { getLongGapThresholdMs, sortPositions, wgs84ToGcj02 } from '../.test-dist/lib/geo.js';
+import { getPreferredMapProvider } from '../.test-dist/lib/mapProvider.js';
 import { PositionsResponseSchema, PublicTripResponseSchema, PublicTripSchema } from '../.test-dist/types.js';
 
 function point(id, capturedAt) {
@@ -78,4 +79,11 @@ test('accepts the public API fixture without private trip identifiers', async ()
   assert.equal(Object.hasOwn(tripResponse.trip.latestPosition ?? {}, 'tripId'), false);
   assert.equal(positionsResponse.points[0]?.sequence, 1);
   assert.equal(Object.hasOwn(positionsResponse.points[0] ?? {}, 'tripId'), false);
+});
+
+test('chooses AMap only when both the JS key and server security proxy are configured', () => {
+  assert.equal(getPreferredMapProvider(undefined, true), 'osm');
+  assert.equal(getPreferredMapProvider('  ', true), 'osm');
+  assert.equal(getPreferredMapProvider('web-js-key', false), 'osm');
+  assert.equal(getPreferredMapProvider('web-js-key', true), 'amap');
 });

@@ -4,26 +4,38 @@ React + TypeScript + Vite 的公开只读分享页。`/trip/:token` 进入即加
 
 ## 本地开发
 
-1. 复制 `.env.example` 为 `.env.local`，填入高德 JavaScript API Key。
+1. 复制 `.env.example` 为 `.env.local`。默认使用无需 Key 的 Leaflet + OpenStreetMap；只有已经配置好高德 Web JS Key 和后端安全代理时才需要设置 AMap 变量。
 2. 设置 `VITE_DEV_PROXY_TARGET` 指向后端服务地址（默认 `http://127.0.0.1:3000`）。
 3. 运行 `npm ci`、`npm run dev`，打开 `http://localhost:5173/trip/<有效分享令牌>`。运行 `npm test` 可执行坐标和轨迹辅助逻辑测试，`npm run build` 会先执行 TypeScript 检查再构建。
 
-高德 JS Key 应在开放平台限制允许使用的 Web 域名。安全密钥 `securityJsCode` 不进入浏览器；页面在加载 SDK 前将 `window._AMapSecurityConfig.serviceHost` 指向同源 `/_AMapService`。生产反向代理把该路径转交后端，高德安全代理凭据由服务端配置。
+### 地图配置
 
-坐标接口均使用 WGS-84。渲染时在浏览器内转换为高德地图使用的 GCJ-02，不调用纠偏、道路吸附或路线规划服务。
+默认使用 Leaflet 和 OpenStreetMap 底图，不需要地图 Key。页面保留起终点、实际轨迹、异常点过滤、长时间中断虚线、位置点详情和自动缩放功能。Leaflet 直接使用 API 中的 WGS-84 坐标。
+
+只有同时配置了高德 Web JS Key 和服务端安全代理后，才启用 AMap：
+
+```dotenv
+VITE_AMAP_JS_KEY=你的高德Web端JS_Key
+VITE_AMAP_SECURITY_PROXY_ENABLED=true
+```
+
+高德 JS Key 应限制允许使用的 Web 域名。`VITE_AMAP_SECURITY_PROXY_ENABLED=true` 仅在后端配置了 `AMAP_SECURITY_JS_CODE`，并通过同源 `/_AMapService` 提供安全代理后启用。安全密钥 `securityJsCode` 不进入浏览器；页面在加载 SDK 前将 `window._AMapSecurityConfig.serviceHost` 指向该同源路径。如果 AMap SDK 加载失败，页面会自动回退到 OpenStreetMap。OpenStreetMap 的版权署名保留在地图上；其公共瓦片服务须遵守使用政策，高访问量部署应替换为自建或合规的瓦片服务。
+
+坐标接口均使用 WGS-84。Leaflet 地图直接绘制 WGS-84；选择 AMap 时才在浏览器内转换为 GCJ-02。不调用纠偏、道路吸附或路线规划服务。
 
 ## Docker
 
-在仓库根目录的 Compose 配置中构建 `web/`，通过构建参数 `VITE_AMAP_JS_KEY` 传入 Web JS Key，例如：
+在仓库根目录的 Compose 配置中构建 `web/`。默认无需地图密钥；需要使用 AMap 时再传入两个构建参数：
 
 ```yaml
 build:
   context: ./web
   args:
     VITE_AMAP_JS_KEY: ${AMAP_WEB_JS_KEY}
+    VITE_AMAP_SECURITY_PROXY_ENABLED: ${AMAP_SECURITY_PROXY_ENABLED:-false}
 ```
 
-不要将 Key 写入 Git。Key 属于前端地图 SDK 的公开标识，应限制域名；高德安全密钥只配置在后端。容器监听 80 端口，`nginx.conf` 将 `/api/` 和 `/_AMapService` 转发到 Compose 服务 `server:3000`，其余路径回退到 `index.html`，因此刷新 `/trip/:token` 可正常打开。
+不要将 Key 写入 Git。Web JS Key 属于前端地图 SDK 的公开标识，应限制域名；高德安全密钥只配置在后端。容器监听 80 端口，`nginx.conf` 将 `/api/` 和 `/_AMapService` 转发到 Compose 服务 `server:3000`，其余路径回退到 `index.html`，因此刷新 `/trip/:token` 可正常打开。
 
 Nginx 访问日志会对分享令牌路径脱敏。TLS 应由 NAS/个人服务器入口反向代理终止，并配置可信 HTTPS 域名。
 
