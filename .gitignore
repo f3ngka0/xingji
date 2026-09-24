@@ -24,7 +24,7 @@ local.properties
 .kotlin/
 
 # Runtime data
-data/
+/data/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

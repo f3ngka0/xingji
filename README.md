@@ -16,7 +16,7 @@
 
 - 行程出发地和可选目的地是地图标记；位置点只来自设备定位。API 与数据库统一使用 WGS-84、UTC ISO-8601 时间。高德返回的 GCJ-02 在 Android 接入层只转换一次，网页展示时转换回高德地图坐标。
 - Android 首次安装生成随机安装 ID，向服务器换取随机设备凭证。凭证保存在 Android 安全存储，服务端仅保存凭证哈希。管理接口要求 Bearer 凭证。
-- 每段行程有独立随机分享令牌。分享链接仅访问公开的只读接口，不能上传位置、改设置、结束或删除行程。撤销、过期或删除后，链接失效。
+- 每段行程有独立随机分享令牌。服务器保存令牌哈希用于公开查询，并用 AES-256-GCM 加密保存原令牌，供设备管理接口在 App 重开后恢复分享链接。分享链接仅访问公开的只读接口，不能上传位置、改设置、结束或删除行程。撤销、过期或删除后，链接失效。
 - 行程最长记录时间默认 24 小时，到期后服务端结束行程。分享链接有效期和数据保留期分别配置；结束后可在链接有效期内查看历史。
 - 每个实测点先写入 Room，再批量上传；服务器以客户端位置点 ID 去重，并保留采集时间与接收时间。异常点保留原始记录，地图可跳过其正常轨迹连接。
 
@@ -35,7 +35,7 @@ Android、Web JS 的 Key 类型及签名/域名限制不同。用户提供的 Ke
 
 要求：Docker Compose、一个指向服务器的域名，以及开放的 80/443 端口。HTTPS 由 Caddy 申请和续期证书；SQLite 文件存放在 Docker 命名卷 `trip_data`，重建容器不会丢失数据。
 
-1. 复制 `.env.example` 为 `.env`，设置 `PUBLIC_HOST`、`PUBLIC_BASE_URL=https://你的域名`、Web JS Key 和 JS 安全密钥。`.env` 已被 Git 忽略。
+1. 复制 `.env.example` 为 `.env`，设置 `PUBLIC_HOST`、`PUBLIC_BASE_URL=https://你的域名`、Web JS Key 和 JS 安全密钥。运行 `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`，把输出保存为 `SHARE_TOKEN_ENCRYPTION_KEY`；此密钥须长期保留，否则已创建行程的分享链接无法恢复。`.env` 已被 Git 忽略。
 2. 在高德控制台为该域名配置 Web JS Key 的域名白名单、安全代理设置。
 3. 运行 `docker compose up -d --build`。检查 `https://你的域名/healthz`，以及服务容器日志。服务启动时执行数据库迁移。
 4. 在 Android 构建配置中填入同一域名的 API 根地址。只有服务端成功创建行程后，App 才能给出可用的分享链接。
