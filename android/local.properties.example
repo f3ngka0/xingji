@@ -1,0 +1,7 @@
+# Replace with this machine's Android SDK location.
+sdk.dir=D:\\android-tools\\android-sdk
+
+# Values below may instead be supplied as environment variables or Gradle -P properties.
+TRIP_API_BASE_URL=https://your-domain.example/
+AMAP_ANDROID_KEY=
+AMAP_WEB_SERVICE_KEY=

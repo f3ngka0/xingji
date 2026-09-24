@@ -1,0 +1,2 @@
+-keep class com.amap.api.location.** { *; }
+-keep class com.tripshare.app.data.remote.dto.** { *; }
