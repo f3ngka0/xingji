@@ -1,0 +1,54 @@
+services:
+  server:
+    build: ./server
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      DB_PATH: /data/trips.sqlite
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      AMAP_JS_SECURITY_CODE: ${AMAP_JS_SECURITY_CODE:-}
+      DEFAULT_SHARE_TTL_SECONDS: ${DEFAULT_SHARE_TTL_SECONDS:-2592000}
+      DATA_RETENTION_DAYS: ${DATA_RETENTION_DAYS:-90}
+      DEFAULT_MAX_SHARE_SECONDS: ${DEFAULT_MAX_SHARE_SECONDS:-86400}
+      DEFAULT_SAMPLE_INTERVAL_SEC: ${DEFAULT_SAMPLE_INTERVAL_SEC:-300}
+    volumes:
+      - trip_data:/data
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  web:
+    build:
+      context: ./web
+      args:
+        VITE_AMAP_JS_KEY: ${AMAP_JS_KEY:-}
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    expose:
+      - "80"
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+volumes:
+  trip_data:
+  caddy_data:
+  caddy_config:

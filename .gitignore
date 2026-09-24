@@ -1,0 +1,34 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+local.properties
+**/local.properties
+*.keystore
+*.jks
+*.p12
+*.pem
+*.key
+
+# Node and build products
+**/node_modules/
+**/dist/
+**/coverage/
+**/.vite/
+
+# Android and IDE outputs
+**/.gradle/
+**/build/
+.idea/
+*.iml
+.kotlin/
+
+# Runtime data
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# OS
+.DS_Store
+Thumbs.db
