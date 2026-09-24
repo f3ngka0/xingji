@@ -27,7 +27,7 @@
 1. **Android 定位 Key**：在高德控制台创建 Android 应用，填入 release 包名 `com.tripshare.app` 与签名 SHA-1；debug 包名为 `com.tripshare.app.debug`，需要单独配置相应签名或 Key。通过 Android Gradle 属性或环境变量 `AMAP_ANDROID_KEY` 注入。定位 SDK 的结果在接入层转换为 WGS-84 才上传。
 2. **Web JS API Key**：创建 Web 端 Key，限制为实际分享域名。构建网页时设置 `AMAP_JS_KEY`，Compose 会将其作为 `VITE_AMAP_JS_KEY` 传给 Vite。浏览器加载 JS API 时会看见此平台 Key，这是高德 JS API 的正常工作方式，须在控制台绑定域名。
 3. **JS API 安全密钥**：设置服务端 `AMAP_JS_SECURITY_CODE`。网页在加载地图之前设置同源 `/_AMapService` 代理；安全密钥只存在服务端，绝不构建进 JS 资源。请在高德控制台核对 JS API 的安全代理/安全密钥要求。
-4. **Web 服务 API Key**：本版地图和位置分享不依赖 Web 服务 API。只有今后需要服务端地点搜索或逆地理编码时，才创建单独的服务端 Key，并限制用途和配额。
+4. **Web 服务 API Key**：Android 地点搜索通过高德 Web 服务 inputtips 接口实现，需用 `AMAP_WEB_SERVICE_KEY` 单独配置。该 Key 会进入 Android 包，应在高德控制台限制可用服务和配额；不应当作 JS API 安全密钥。客户端所选地点坐标在接入层转换为 WGS-84。
 
 Android、Web JS 的 Key 类型及签名/域名限制不同。用户提供的 Key 可用于匹配的平台测试，但它不能自动代替所有平台所需的 Key。
 
@@ -46,7 +46,7 @@ SQLite 默认保留 90 天数据，可通过 `DATA_RETENTION_DAYS` 调整。`DEF
 
 服务端：在 `server/` 安装依赖，设置本地 `.env` 的 `DB_PATH` 与 `PUBLIC_BASE_URL`，运行开发脚本。网页端：在 `web/` 设置 `VITE_AMAP_JS_KEY` 后运行 Vite；本地开发代理应转发 `/api/` 和 `/_AMapService` 到服务端。具体命令见各目录的 `package.json`。
 
-Android：安装 JDK 17、Android SDK 35，设置 `ANDROID_HOME`/`JAVA_HOME` 和 `android/local.properties` 的 `sdk.dir`。在 `android/` 用 Gradle 构建 `assembleDebug`。配置 `TRIP_API_BASE_URL`、`AMAP_ANDROID_KEY`、`AMAP_WEB_KEY`（Gradle 属性或环境变量）；release 地址必须是 HTTPS。debug 可使用 `http://10.0.2.2:3000/` 访问宿主机服务。release 签名由部署者自备，不在仓库存储。第一次使用需授予前台精确位置权限；Android 13+ 通知权限、Android 14+ 位置前台服务要求也应按系统提示处理。
+Android：安装 JDK 17、Android SDK 35，设置 `ANDROID_HOME`/`JAVA_HOME` 和 `android/local.properties` 的 `sdk.dir`。在 `android/` 用 Gradle 构建 `assembleDebug`。配置 `TRIP_API_BASE_URL`、`AMAP_ANDROID_KEY`、`AMAP_WEB_SERVICE_KEY`（Gradle 属性或环境变量）；release 地址必须是 HTTPS。debug 可使用 `http://10.0.2.2:3000/` 访问宿主机服务。release 签名由部署者自备，不在仓库存储。第一次使用需授予前台精确位置权限；Android 13+ 通知权限、Android 14+ 位置前台服务要求也应按系统提示处理。
 
 ## 使用和已知边界
 
