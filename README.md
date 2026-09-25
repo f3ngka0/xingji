@@ -14,29 +14,29 @@
 
 ## 数据与权限
 
-- 行程出发地和可选目的地是地图标记；位置点只来自设备定位。API 与数据库统一使用 WGS-84、UTC ISO-8601 时间。高德返回的 GCJ-02 在 Android 接入层只转换一次，网页展示时转换回高德地图坐标。
+- 行程出发地和可选目的地是地图标记；位置点只来自设备定位。API 与数据库统一使用 WGS-84、UTC ISO-8601 时间。高德返回的 GCJ-02 在 Android 接入层只转换一次；默认 OpenStreetMap 地图直接使用 WGS-84，启用高德地图时网页再转换为 GCJ-02。
 - Android 首次安装生成随机安装 ID，向服务器换取随机设备凭证。凭证保存在 Android 安全存储，服务端仅保存凭证哈希。管理接口要求 Bearer 凭证。
 - 每段行程有独立随机分享令牌。服务器保存令牌哈希用于公开查询，并用 AES-256-GCM 加密保存原令牌，供设备管理接口在 App 重开后恢复分享链接。分享链接仅访问公开的只读接口，不能上传位置、改设置、结束或删除行程。撤销、过期或删除后，链接失效。
 - 行程最长记录时间默认 24 小时，到期后服务端结束行程。分享链接有效期和数据保留期分别配置；结束后可在链接有效期内查看历史。
 - 每个实测点先写入 Room，再批量上传；服务器以客户端位置点 ID 去重，并保留采集时间与接收时间。异常点保留原始记录，地图可跳过其正常轨迹连接。
 
-## 高德开放平台配置
+## 地图与高德开放平台配置
 
-**请分别创建平台对应的 Key，切勿把本仓库或聊天中提供的 Key 当作通用 Key 提交到 Git。**
+Web 地图默认使用 Leaflet 和 OpenStreetMap，不需要地图 Key；Android 未配置高德定位 Key 时使用 Android 系统单次定位。地点搜索仍需要有效的高德 Web 服务 Key。若要启用高德服务，请分别配置相应平台的 Key，切勿把 Key 提交到 Git。
 
-1. **Android 定位 Key**：在高德控制台创建 Android 应用，填入 release 包名 `com.tripshare.app` 与签名 SHA-1；debug 包名为 `com.tripshare.app.debug`，需要单独配置相应签名或 Key。通过 Android Gradle 属性或环境变量 `AMAP_ANDROID_KEY` 注入。定位 SDK 的结果在接入层转换为 WGS-84 才上传。
-2. **Web JS API Key**：创建 Web 端 Key，限制为实际分享域名。构建网页时设置 `AMAP_JS_KEY`，Compose 会将其作为 `VITE_AMAP_JS_KEY` 传给 Vite。浏览器加载 JS API 时会看见此平台 Key，这是高德 JS API 的正常工作方式，须在控制台绑定域名。
-3. **JS API 安全密钥**：设置服务端 `AMAP_JS_SECURITY_CODE`。网页在加载地图之前设置同源 `/_AMapService` 代理；安全密钥只存在服务端，绝不构建进 JS 资源。请在高德控制台核对 JS API 的安全代理/安全密钥要求。
-4. **Web 服务 API Key**：Android 地点搜索通过高德 Web 服务 inputtips 接口实现，需用 `AMAP_WEB_SERVICE_KEY` 单独配置。该 Key 会进入 Android 包，应在高德控制台限制可用服务和配额；不应当作 JS API 安全密钥。客户端所选地点坐标在接入层转换为 WGS-84。
+1. **Android 定位 Key**：在高德控制台创建 Android 应用，填入 release 包名 `com.tripshare.app` 与签名 SHA-1；debug 包名为 `com.tripshare.app.debug`，需要单独配置相应签名或 Key。通过 Android Gradle 属性或环境变量 `AMAP_ANDROID_KEY` 注入。定位 SDK 的 GCJ-02 结果在接入层转换为 WGS-84 才上传。未配置或 Android Key 无法授权时，客户端退回 Android 系统 `LocationManager` 的单次真实定位；其 WGS-84 结果不再转换。
+2. **Web JS API Key（可选）**：创建 Web 端 Key，限制为实际分享域名。构建网页时设置 `AMAP_JS_KEY`。浏览器加载 JS API 时会看见此平台 Key，这是高德 JS API 的正常工作方式，须在控制台绑定域名。
+3. **JS API 安全密钥（可选）**：设置服务端 `AMAP_JS_SECURITY_CODE`，并将 `AMAP_SECURITY_PROXY_ENABLED=true`。网页在加载地图之前设置同源 `/_AMapService` 代理；安全密钥只存在服务端，绝不构建进 JS 资源。两个高德 JS 配置缺任意一项时保持默认 OpenStreetMap 地图。
+4. **Web 服务 API Key**：Android 地点搜索通过高德 Web 服务 inputtips 接口实现，需在 Android 构建时配置 `AMAP_WEB_SERVICE_KEY`。该 Key 会进入 Android 包，应在高德控制台限制可用服务和配额；不应当作 JS API 安全密钥。客户端所选地点坐标在接入层转换为 WGS-84。服务端也可独立配置同名环境变量，用于限频逆地理编码：优先返回最近地名、相对方位与距离，无合适地点则返回区域名；分享令牌不会传给高德。此配置可留空，此时网页使用中性位置说明。
 
-Android、Web JS 的 Key 类型及签名/域名限制不同。用户提供的 Key 可用于匹配的平台测试，但它不能自动代替所有平台所需的 Key。
+Android、Web JS、Web 服务的 Key 类型及签名/域名限制不同。本次所给 Key 已确认可用于高德 Web 服务地点搜索和逆地理编码；无法仅凭 Key 字符串确认它可用于 Android SDK 或 Web JS API，因此模拟器联调使用系统定位后备，网页默认使用 OpenStreetMap。
 
 ## 个人服务器或 NAS 部署
 
 要求：Docker Compose、一个指向服务器的域名，以及开放的 80/443 端口。HTTPS 由 Caddy 申请和续期证书；SQLite 文件存放在 Docker 命名卷 `trip_data`，重建容器不会丢失数据。
 
-1. 复制 `.env.example` 为 `.env`，设置 `PUBLIC_HOST`、`PUBLIC_BASE_URL=https://你的域名`、Web JS Key 和 JS 安全密钥。运行 `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`，把输出保存为 `SHARE_TOKEN_ENCRYPTION_KEY`；此密钥须长期保留，否则已创建行程的分享链接无法恢复。`.env` 已被 Git 忽略。
-2. 在高德控制台为该域名配置 Web JS Key 的域名白名单、安全代理设置。
+1. 复制 `.env.example` 为 `.env`，设置 `PUBLIC_HOST`、`PUBLIC_BASE_URL=https://你的域名`。运行 `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`，把输出保存为 `SHARE_TOKEN_ENCRYPTION_KEY`；此密钥须长期保留，否则已创建行程的分享链接无法恢复。`.env` 已被 Git 忽略。
+2. 默认地图无需高德 JS Key。如选择高德地图，在控制台为该域名配置 Web JS Key 的域名白名单和安全代理，并填写上述三个高德 JS 环境变量。
 3. 运行 `docker compose up -d --build`。检查 `https://你的域名/healthz`，以及服务容器日志。服务启动时执行数据库迁移。
 4. 在 Android 构建配置中填入同一域名的 API 根地址。只有服务端成功创建行程后，App 才能给出可用的分享链接。
 
@@ -44,9 +44,9 @@ SQLite 默认保留 90 天数据，可通过 `DATA_RETENTION_DAYS` 调整。`DEF
 
 ## 本地开发
 
-服务端：在 `server/` 安装依赖，设置本地 `.env` 的 `DB_PATH` 与 `PUBLIC_BASE_URL`，运行开发脚本。网页端：在 `web/` 设置 `VITE_AMAP_JS_KEY` 后运行 Vite；本地开发代理应转发 `/api/` 和 `/_AMapService` 到服务端。具体命令见各目录的 `package.json`。
+服务端：在 `server/` 安装依赖，设置本地 `.env` 的 `DB_PATH` 与 `PUBLIC_BASE_URL`，运行开发脚本。网页端默认用 OpenStreetMap，直接运行 Vite；本地开发代理应转发 `/api/` 到服务端。选择高德地图时还应转发 `/_AMapService`。具体命令见各目录的 `package.json`。
 
-Android：安装 JDK 17、Android SDK 35，设置 `ANDROID_HOME`/`JAVA_HOME` 和 `android/local.properties` 的 `sdk.dir`。在 `android/` 用 Gradle 构建 `assembleDebug`。配置 `TRIP_API_BASE_URL`、`AMAP_ANDROID_KEY`、`AMAP_WEB_SERVICE_KEY`（Gradle 属性或环境变量）；release 地址必须是 HTTPS。debug 可使用 `http://10.0.2.2:3000/` 访问宿主机服务。release 签名由部署者自备，不在仓库存储。第一次使用需授予前台精确位置权限；Android 13+ 通知权限、Android 14+ 位置前台服务要求也应按系统提示处理。
+Android：安装 JDK 17、Android SDK Platform 36 和 Build Tools 37，设置 `ANDROID_HOME`/`JAVA_HOME` 和 `android/local.properties` 的 `sdk.dir`。App 的目标系统版本仍是 Android 35。在 `android/` 用 Gradle 构建 `assembleDebug`。配置 `TRIP_API_BASE_URL`、`AMAP_WEB_SERVICE_KEY`，如有适用的 Android 定位 Key 再配置 `AMAP_ANDROID_KEY`（Gradle 属性或环境变量）；release 地址必须是 HTTPS。debug 可使用 `http://10.0.2.2:3000/` 访问宿主机服务。release 签名由部署者自备，不在仓库存储。第一次使用需授予前台精确位置权限；Android 13+ 通知权限、Android 14+ 位置前台服务要求也应按系统提示处理。
 
 ## 使用和已知边界
 
@@ -56,4 +56,4 @@ Android：安装 JDK 17、Android SDK 35，设置 `ANDROID_HOME`/`JAVA_HOME` 和
 
 ## 测试
 
-服务端、网页端和 Android 的自动化测试分别位于各自项目。验证应包含空目的地建行程、幂等上传、离线补传顺序、令牌撤销、轨迹显示与后台服务生命周期。模拟器可验证安装、权限与基本交互；真实锁屏和厂商后台策略仍需要真机测试。具体本次已运行的命令与结果在交付说明中列出。
+服务端、网页端和 Android 的自动化测试分别位于各自项目。启动一次性测试服务器后，可运行 `node scripts/integration-smoke.mjs` 做跨进程 REST 联调；它会在目标服务器写入测试设备、行程和位置点，请只对可丢弃的测试数据库运行。验证应包含空目的地建行程、幂等上传、离线补传顺序、令牌撤销、轨迹显示与后台服务生命周期。模拟器可验证安装、权限与基本交互；真实锁屏和厂商后台策略仍需要真机测试。具体本次已运行的命令与结果在交付说明中列出。

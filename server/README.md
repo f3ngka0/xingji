@@ -52,6 +52,7 @@ SQLite 文件存放于持久化卷 `/data/trips.sqlite`。数据库备份恢复�
 | `REQUIRE_HTTPS` | 生产环境 `true`，其他环境 `false` | 生产 API 经 TLS 代理访问时启用 |
 | `SHARE_TOKEN_ENCRYPTION_KEY` | 无 | 64 位十六进制字符（32 字节）；用于 AES-256-GCM 加密数据库中的分享令牌，生产环境必填 |
 | `AMAP_JS_SECURITY_CODE` | 空 | 高德 JS API 安全密钥；只配置在后端，不返回给浏览器 |
+| `AMAP_WEB_SERVICE_KEY` | 空 | 可选的高德 Web 服务 Key；服务端限频逆地理编码，以显示附近地点和方位距离 |
 | `DEFAULT_SAMPLE_INTERVAL_SEC` | `300` | 默认定位采样间隔 |
 | `DEFAULT_MAX_SHARE_SECONDS` | `86400` | 默认最长采集时间；到期后行程自动结束 |
 | `DEFAULT_SHARE_TTL_SECONDS` | `2592000` | 分享链接有效期；独立于行程结束时间 |
@@ -70,6 +71,8 @@ SQLite 文件存放于持久化卷 `/data/trips.sqlite`。数据库备份恢复�
 浏览器加载地图时使用 Web 端 `VITE_AMAP_JS_KEY`（Web JS API 类型，需要设置站点域名白名单）。客户端 Android 定位应使用独立的 Android Key（Android SDK 类型，并绑定包名及签名 SHA-1/SHA-256）。不要把高德 JS API 安全密钥放进 Vite 环境变量。
 
 Web 在加载高德 JS API 之前，将 `window._AMapSecurityConfig.serviceHost` 指向 `location.origin + "/_AMapService"`。后端只允许高德固定 REST 主机的地理编码、逆地理编码、地点搜索、详情和输入提示 GET 接口，并覆盖浏览器传来的 `jscode`，注入服务器配置的 `AMAP_JS_SECURITY_CODE`。Web Key 是需要公开的域名受限 JS Key；安全密钥留在服务端。路线规划接口不在代理允许列表中。
+
+服务端设置 `AMAP_WEB_SERVICE_KEY` 后，会对最近的真实定位点执行可选逆地理编码。每段行程两次查询至少间隔 2 分钟，查询在位置上传或公开读取之后异步执行，不阻塞轨迹保存。高德返回附近 POI 时，页面可显示如“南宁东站西北 430 米”；缺少合适 POI 时回退到区域名称。此请求只传经纬度，不传分享令牌或设备凭证。Key 缺失、配额耗尽或高德不可用时，位置采集和分享仍可用，页面不会把手动出发地当作当前地点。
 
 ## API 主要路由
 

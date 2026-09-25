@@ -9,6 +9,7 @@ export interface AppConfig {
   trustProxyHops: number;
   requireHttps: boolean;
   amapJsSecurityCode: string | null;
+  amapWebServiceKey: string | null;
   shareTokenEncryptionKey: Buffer;
   defaultSampleIntervalSec: number;
   defaultMaxShareSeconds: number;
@@ -70,6 +71,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     trustProxyHops,
     requireHttps: (env.REQUIRE_HTTPS ?? (env.NODE_ENV === "production" ? "true" : "false")).toLowerCase() === "true",
     amapJsSecurityCode: env.AMAP_JS_SECURITY_CODE?.trim() || null,
+    amapWebServiceKey: env.AMAP_WEB_SERVICE_KEY?.trim() || null,
     shareTokenEncryptionKey: encryptionKey,
     defaultSampleIntervalSec,
     defaultMaxShareSeconds,

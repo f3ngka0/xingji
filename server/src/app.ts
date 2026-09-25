@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { AppConfig } from "./config";
 import { closeExpiredTrips, decryptSecret, encryptSecret, markOutliers, newSecret, newUuid, nowIso, publicPosition, publicTrip, sha256, tripToApi, type TripRow } from "./domain";
 import { pointErrorCode, pointInputSchema, createTripSchema, settingsSchema, uuidSchema } from "./validation";
+import { scheduleLatestPlaceLabel } from "./geocode";
 
 const error = (res: Response, status: number, code: string, message: string) =>
   res.status(status).json({ error: { code, message } });
@@ -311,6 +312,7 @@ export function createApp(db: Database.Database, config: AppConfig): express.Exp
     } catch {
       return error(res, 500, "INTERNAL_ERROR", "无法保存位置数据。" );
     }
+    if (acceptedIds.length) scheduleLatestPlaceLabel(db, config, row.id);
     return res.json({ acceptedIds, duplicateIds, rejected });
   });
 
@@ -321,6 +323,7 @@ export function createApp(db: Database.Database, config: AppConfig): express.Exp
     closeExpiredTrips(db);
     const refreshed = getPublicTrip(db, token);
     if (!refreshed) return error(res, 404, "NOT_FOUND", "此分享链接无效或已失效。" );
+    scheduleLatestPlaceLabel(db, config, refreshed.id);
     res.json({ trip: publicTrip(db, refreshed) });
   });
 

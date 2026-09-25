@@ -30,4 +30,12 @@ export function migrate(db: Database.Database): void {
       db.pragma("user_version = 2");
     })();
   }
+  const versionAfterEncryption = Number(db.pragma("user_version", { simple: true }));
+  if (versionAfterEncryption < 3) {
+    const sql = readFileSync(join(__dirname, "..", "migrations", "003_position_place_label.sql"), "utf8");
+    db.transaction(() => {
+      db.exec(sql);
+      db.pragma("user_version = 3");
+    })();
+  }
 }

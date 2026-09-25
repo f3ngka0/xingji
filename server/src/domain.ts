@@ -58,6 +58,8 @@ export interface PositionRow {
   source: string | null;
   coordinate_system: "WGS84";
   is_outlier: number;
+  place_label: string | null;
+  place_label_checked_at: string | null;
 }
 
 export function tripToApi(db: Database.Database, row: TripRow) {
@@ -122,6 +124,7 @@ export function publicTrip(db: Database.Database, row: TripRow) {
     uploadIntervalSec: trip.uploadIntervalSec,
     mode: trip.mode,
     latestPositionAt: trip.latestPositionAt,
+    latestPositionLabel: latest?.place_label ?? null,
     pointCount: trip.pointCount,
     latestPosition: latest ? publicPosition(latest) : null
   };

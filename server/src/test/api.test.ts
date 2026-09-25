@@ -7,6 +7,7 @@ import type Database from "better-sqlite3";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { randomUUID } from "node:crypto";
+import { labelFromRegeo } from "../geocode";
 
 interface Context {
   db: Database.Database;
@@ -97,6 +98,7 @@ test("trip creation accepts absent or explicit-null destination and keeps marker
   const publicTrip = await json(ctx, `/api/v1/public/trips/${token}`, { headers: { authorization: `Bearer ${ctx.credential}` } });
   assert.equal(publicTrip.response.status, 200);
   assert.equal(publicTrip.body.trip.destination, null);
+  assert.equal(publicTrip.body.trip.latestPositionLabel, null);
   assert.equal("id" in publicTrip.body.trip, false);
   assert.equal("shareToken" in publicTrip.body.trip, false);
   const tripId = absent.body.trip.id;
@@ -108,6 +110,20 @@ test("trip creation accepts absent or explicit-null destination and keeps marker
   assert.equal(explicitNull.body.trip.title, "我的位置共享");
   const restored = await json(ctx, `/api/v1/trips/${explicitNull.body.trip.id}`, { headers: management(ctx) });
   assert.equal(restored.body.trip.shareUrl, explicitNull.body.shareUrl);
+});
+
+test("nearby place labels show measured direction and distance, then fall back to an area", () => {
+  const place = labelFromRegeo(0.0028, -0.0028, {
+    status: "1",
+    regeocode: { pois: [{ name: "南宁东站", location: "0,0" }] }
+  });
+  assert.match(place ?? "", /^南宁东站西北 \d+ 米$/);
+  const area = labelFromRegeo(23.4, 111.2, {
+    status: "1",
+    regeocode: { pois: [], addressComponent: { township: "龙圩镇" } }
+  });
+  assert.equal(area, "龙圩镇附近");
+  assert.equal(labelFromRegeo(23.4, 111.2, { status: "0" }), null);
 });
 
 test("supports a destination and validates detailed collection settings", async () => {
@@ -168,6 +184,10 @@ test("position upload is idempotent, validates each point, orders by captured ti
   assert.equal(publicPoints.body.points[0].speedMps, null);
   assert.equal(publicPoints.body.points[0].coordinateSystem, "WGS84");
   assert.equal(publicPoints.body.points[0].receivedAt > publicPoints.body.points[0].capturedAt, true);
+  ctx.db.prepare("UPDATE positions SET place_label = ? WHERE trip_id = ? AND id = ?")
+    .run("龙圩镇西北 430 米", tripId, point.id);
+  const publicMetadata = await json(ctx, `/api/v1/public/trips/${token}`);
+  assert.equal(publicMetadata.body.trip.latestPositionLabel, "龙圩镇西北 430 米");
   const page = await json(ctx, `/api/v1/public/trips/${token}/positions?after=0&limit=1`);
   assert.equal(page.body.hasMore, true);
   const continuation = await json(ctx, `/api/v1/public/trips/${token}/positions?after=${page.body.nextCursor}&limit=1`);
