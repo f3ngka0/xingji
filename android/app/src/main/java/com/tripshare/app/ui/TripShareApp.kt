@@ -12,6 +12,8 @@ import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,7 +25,10 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,46 +41,42 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccessTime
-import androidx.compose.material.icons.filled.AddLocationAlt
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.ShareLocation
-import androidx.compose.material.icons.filled.SignalCellularAlt
-import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -92,7 +93,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.work.WorkManager
 import com.tripshare.app.BuildConfig
 import com.tripshare.app.data.CapturedPosition
 import com.tripshare.app.data.LocalTripSummary
@@ -108,6 +108,8 @@ import com.tripshare.app.location.AmapPlace
 import com.tripshare.app.location.TripLocationService
 import com.tripshare.app.worker.TripSyncWorker
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -116,12 +118,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.pow
 import kotlin.math.roundToLong
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 private enum class AppPage { HOME, CREATE, ACTIVE, HISTORY, SETTINGS }
 private enum class PermissionPurpose { NONE, AUTO_ORIGIN, RELOCATE, START, RESUME }
@@ -147,10 +144,15 @@ fun TripShareApp(repository: TripRepository) {
     var consentAccepted by remember { mutableStateOf(LocationDisclosureStore.isAccepted(context)) }
     var amapConsentAccepted by remember { mutableStateOf(AmapConsentStore.isAccepted(context)) }
     var showConsent by rememberSaveable { mutableStateOf(false) }
+    var createError by rememberSaveable { mutableStateOf<String?>(null) }
+    var showAbout by rememberSaveable { mutableStateOf(false) }
     var locationAttempted by rememberSaveable { mutableStateOf(false) }
+    var originLocationLoading by rememberSaveable { mutableStateOf(false) }
+    var originLocationFailed by rememberSaveable { mutableStateOf(false) }
     var searchTarget by rememberSaveable { mutableStateOf<String?>(null) }
     var settingsTripId by rememberSaveable { mutableStateOf<String?>(null) }
     var showEndConfirm by rememberSaveable { mutableStateOf(false) }
+    var showRevokeConfirm by rememberSaveable { mutableStateOf(false) }
     var deleteCandidate by remember { mutableStateOf<LocalTripSummary?>(null) }
     var permissionPurpose by remember { mutableStateOf(PermissionPurpose.NONE) }
     var afterNotificationPermission by remember { mutableStateOf(false) }
@@ -182,17 +184,24 @@ fun TripShareApp(repository: TripRepository) {
             showConsent = true
             return
         }
+        originLocationLoading = true
+        originLocationFailed = false
         busy = true
         try {
             val sample = withTimeout(45_000L) { AmapLocationSampler(context).capture(needAddress = true) }
                 ?: throw IllegalStateException("暂时无法获取有效位置，请重试或手动搜索出发地")
             if (!allowReplace && originManuallyChanged) return
-            val label = sample.placeLabel?.let { " · $it" } ?: ""
-            origin = PlaceMarker("当前位置$label", sample.latWgs84, sample.lonWgs84)
+            val label = sample.placeLabel?.takeIf(String::isNotBlank) ?: "当前位置"
+            origin = PlaceMarker(label, sample.latWgs84, sample.lonWgs84)
+            originLocationFailed = false
             if (allowReplace) originManuallyChanged = false
-        } catch (error: Exception) {
-            showMessage(error.message ?: "定位失败，请检查权限和高德 Android Key")
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            originLocationFailed = true
+            showMessage("暂时无法获取位置，请稍后重试或手动选择出发地。")
         } finally {
+            originLocationLoading = false
             busy = false
         }
     }
@@ -210,6 +219,7 @@ fun TripShareApp(repository: TripRepository) {
             showMessage("请允许行程通知，才能看到后台定位状态和结束入口")
             return
         }
+        createError = null
         busy = true
         var created: LocalTripSummary? = null
         try {
@@ -229,13 +239,12 @@ fun TripShareApp(repository: TripRepository) {
             TripLocationService.start(context, summary.id, firstPosition.capturedAt)
             active = repository.localTrip(summary.id) ?: summary
             page = AppPage.ACTIVE.name
-            showMessage("行程已开始，位置先保存在本机并开始同步")
         } catch (error: Exception) {
             created?.let { trip ->
                 repository.endTrip(trip.id)
                 TripSyncWorker.enqueue(context, trip.id)
             }
-            showMessage(error.message ?: "行程创建失败，请检查网络和服务器配置")
+            createError = "暂时无法连接服务器，请稍后重试。"
         } finally {
             busy = false
         }
@@ -307,7 +316,7 @@ fun TripShareApp(repository: TripRepository) {
         } else requestLocation(PermissionPurpose.START)
     }
 
-    LaunchedEffect(page, consentAccepted, locationAttempted) {
+    LaunchedEffect(page, consentAccepted) {
         if (page == AppPage.CREATE.name && consentAccepted && !locationAttempted) {
             locationAttempted = true
             if (hasLocationPermission()) locateOrigin(allowReplace = false)
@@ -329,12 +338,36 @@ fun TripShareApp(repository: TripRepository) {
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text(pageTitle(page, settingsTripId), fontWeight = FontWeight.SemiBold) },
+                title = {
+                    Text(
+                        if (page == AppPage.HOME.name) "同行" else pageTitle(page, settingsTripId, active),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                },
                 navigationIcon = {
                     if (page != AppPage.HOME.name) IconButton(onClick = {
                         if (page == AppPage.SETTINGS.name && settingsTripId != null) page = AppPage.ACTIVE.name
                         else page = AppPage.HOME.name
                     }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") }
+                },
+                actions = {
+                    when (page) {
+                        AppPage.HOME.name -> HomeOverflowMenu(
+                            onSettings = { settingsTripId = null; page = AppPage.SETTINGS.name },
+                            onAbout = { showAbout = true }
+                        )
+                        AppPage.ACTIVE.name -> active?.let { trip ->
+                            TripOverflowMenu(
+                                trip = trip,
+                                onSettings = { settingsTripId = trip.id; page = AppPage.SETTINGS.name },
+                                onResume = { requestLocation(PermissionPurpose.RESUME) },
+                                onRevoke = { showRevokeConfirm = true },
+                                onDelete = { deleteCandidate = trip },
+                                onHistory = { page = AppPage.HISTORY.name }
+                            )
+                        }
+                        else -> Unit
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
@@ -347,33 +380,38 @@ fun TripShareApp(repository: TripRepository) {
                     onCreate = {
                         if (active?.isActive == true) showMessage("请先结束当前行程，再创建新行程")
                         else {
+                            createError = null
                             origin = null
                             originManuallyChanged = false
+                            originLocationLoading = false
+                            originLocationFailed = false
                             destination = null
                             locationAttempted = false
                             page = AppPage.CREATE.name
                             if (!consentAccepted) showConsent = true
                         }
                     },
-                    onResume = { trip ->
-                        active = trip
-                        if (!consentAccepted) showConsent = true else requestLocation(PermissionPurpose.RESUME)
-                    },
                     onOpenActive = { active = it; page = AppPage.ACTIVE.name },
                     onHistory = {
                         page = AppPage.HISTORY.name
                         scope.launch { runCatching { repository.refreshTrips() }.onSuccess { tripRows = it } }
-                    },
-                    onSettings = { settingsTripId = null; page = AppPage.SETTINGS.name }
+                    }
                 )
                 AppPage.CREATE.name -> CreateTripPage(
                     origin = origin,
+                    originLocationPlaceholder = when {
+                        originLocationLoading -> "正在获取当前位置"
+                        originLocationFailed -> "定位失败，点击重试或搜索"
+                        locationAttempted -> "未获取位置，点击重试或搜索"
+                        else -> "正在获取当前位置"
+                    },
                     destination = destination,
                     mode = TrackingMode.valueOf(mode),
                     interval = interval,
                     customInterval = customInterval,
                     maxShare = maxShare,
                     busy = busy,
+                    error = createError,
                     onOrigin = { searchTarget = "origin" },
                     onDestination = { searchTarget = "destination" },
                     onRelocate = {
@@ -389,20 +427,8 @@ fun TripShareApp(repository: TripRepository) {
                     ActiveTripPage(
                         trip = trip,
                         repository = repository,
-                        onSettings = { settingsTripId = trip.id; page = AppPage.SETTINGS.name },
                         onEnd = { showEndConfirm = true },
-                        onRevoke = {
-                            scope.launch {
-                                busy = true
-                                runCatching { repository.revokeShare(trip.id) }
-                                    .onSuccess { active = repository.localTrip(trip.id); showMessage("分享链接已撤销") }
-                                    .onFailure { showMessage(it.message ?: "撤销失败，请检查网络") }
-                                busy = false
-                            }
-                        },
-                        onCopy = { link -> copyText(context, "行程分享链接", link); showMessage("分享链接已复制") },
-                        onResume = { requestLocation(PermissionPurpose.RESUME) },
-                        onHistory = { page = AppPage.HISTORY.name }
+                        onCopy = { link -> copyText(context, "行程分享链接", link) }
                     )
                 } ?: EmptyState("没有进行中的行程")
                 AppPage.HISTORY.name -> HistoryPage(
@@ -416,8 +442,7 @@ fun TripShareApp(repository: TripRepository) {
                             busy = false
                         }
                     },
-                    onOpen = { trip -> active = trip; page = AppPage.ACTIVE.name },
-                    onDelete = { deleteCandidate = it }
+                    onOpen = { trip -> active = trip; page = AppPage.ACTIVE.name }
                 )
                 AppPage.SETTINGS.name -> SettingsPage(
                     current = settingsTripId?.let { tripId -> tripRows.firstOrNull { it.id == tripId } ?: active?.takeIf { it.id == tripId } },
@@ -455,9 +480,9 @@ fun TripShareApp(repository: TripRepository) {
                         }
                     }
                 )
-                else -> HomePage(active, {}, {}, {}, {}, {})
+                else -> HomePage(active, {}, {}, {})
             }
-            if (busy) {
+            if (busy && page != AppPage.CREATE.name) {
                 Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
@@ -473,9 +498,9 @@ fun TripShareApp(repository: TripRepository) {
             text = {
                 Text(
                     if (hasAndroidAmapKey)
-                        "行程开始后，位置会先保存在本机，再上传到你配置的服务器；只有你主动开始行程时才会进行后台采集，结束行程后停止。若你选择高德定位，高德 SDK 会处理设备位置、网络及必要的设备信息；你也可以只使用 Android 系统定位。你可以随时撤销分享链接或删除行程。"
+                        "开始行程后，同行会在行程期间使用设备定位并同步位置，供家人通过链接查看；结束后会停止记录。若使用高德地图定位，高德会处理设备位置等必要信息，也可以只使用系统定位。"
                     else
-                        "当前未配置高德 Android 定位 SDK Key，位置将由 Android 系统定位服务采集。行程开始后，位置会先保存在本机，再上传到你配置的服务器；只有你主动开始行程时才会进行后台采集，结束行程后停止。你可以随时撤销分享链接或删除行程。"
+                        "开始行程后，同行会在行程期间使用系统定位并同步位置，供家人通过链接查看；结束后会停止记录。"
                 )
             },
             confirmButton = {
@@ -487,7 +512,7 @@ fun TripShareApp(repository: TripRepository) {
                         amapConsentAccepted = true
                     }
                     showConsent = false
-                }) { Text(if (hasAndroidAmapKey) "同意并使用高德定位" else "我知道了并继续") }
+                }) { Text(if (hasAndroidAmapKey) "同意并继续" else "我知道了并继续") }
             },
             dismissButton = {
                 if (hasAndroidAmapKey && !amapConsentAccepted) {
@@ -497,7 +522,9 @@ fun TripShareApp(repository: TripRepository) {
                         showConsent = false
                     }) { Text("仅使用系统定位") }
                 } else TextButton(onClick = { showConsent = false }) { Text("稍后") }
-            }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp
         )
     }
 
@@ -509,6 +536,7 @@ fun TripShareApp(repository: TripRepository) {
                 if (target == "origin") {
                     origin = place.asMarker()
                     originManuallyChanged = true
+                    originLocationFailed = false
                 } else destination = place.asMarker()
                 searchTarget = null
             }
@@ -516,29 +544,74 @@ fun TripShareApp(repository: TripRepository) {
     }
 
     if (showEndConfirm) {
-        AlertDialog(
+        ModalBottomSheet(
             onDismissRequest = { showEndConfirm = false },
-            title = { Text("结束本次行程？") },
-            text = { Text("结束后会停止采集新位置。已记录的位置会保留，未上传的位置会在网络恢复后继续同步。") },
-            confirmButton = {
-                Button(onClick = {
-                    val trip = active
-                    showEndConfirm = false
-                    if (trip != null) {
-                        busy = true
-                        scope.launch {
-                            val synced = repository.endTrip(trip.id)
-                            TripSyncWorker.enqueue(context, trip.id)
-                            context.stopService(android.content.Intent(context, TripLocationService::class.java))
-                            active = repository.localTrip(trip.id)
-                            tripRows = repository.allLocalTrips()
-                            busy = false
-                            showMessage(if (synced) "行程已结束" else "行程已在本机结束，服务器状态将在网络恢复后更新")
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = MaterialTheme.colorScheme.outlineVariant) }
+        ) {
+            Column(
+                Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 24.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text("结束这次行程？", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                Text("停止后将不再记录新的位置，已有轨迹仍会保留。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                PrimaryButton(
+                    text = "结束行程",
+                    onClick = {
+                        val trip = active
+                        showEndConfirm = false
+                        if (trip != null) {
+                            busy = true
+                            scope.launch {
+                                val synced = repository.endTrip(trip.id)
+                                TripSyncWorker.enqueue(context, trip.id)
+                                context.stopService(android.content.Intent(context, TripLocationService::class.java))
+                                active = repository.localTrip(trip.id)
+                                tripRows = repository.allLocalTrips()
+                                busy = false
+                                showMessage(if (synced) "行程已结束" else "行程已在本机结束，网络恢复后会继续更新")
+                            }
                         }
                     }
-                }) { Text("结束行程") }
+                )
+                SecondaryButton(text = "继续共享", onClick = { showEndConfirm = false })
+            }
+        }
+    }
+
+    if (showRevokeConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRevokeConfirm = false },
+            title = { Text("撤销家人查看链接？") },
+            text = { Text("撤销后，家人将无法再通过现有链接查看这次行程。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val trip = active
+                    showRevokeConfirm = false
+                    if (trip != null) scope.launch {
+                        busy = true
+                        runCatching { repository.revokeShare(trip.id) }
+                            .onSuccess { active = repository.localTrip(trip.id); showMessage("分享链接已撤销") }
+                            .onFailure { showMessage(it.message ?: "撤销失败，请检查网络") }
+                        busy = false
+                    }
+                }) { Text("撤销链接") }
             },
-            dismissButton = { TextButton(onClick = { showEndConfirm = false }) { Text("继续记录") } }
+            dismissButton = { TextButton(onClick = { showRevokeConfirm = false }) { Text("取消") } },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp
+        )
+    }
+
+    if (showAbout) {
+        AlertDialog(
+            onDismissRequest = { showAbout = false },
+            title = { Text("同行") },
+            text = { Text("一款为旅途位置分享而设计的轻量工具。只有你主动开始行程后，位置才会分享给家人。") },
+            confirmButton = { TextButton(onClick = { showAbout = false }) { Text("知道了") } },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp
         )
     }
 
@@ -555,14 +628,19 @@ fun TripShareApp(repository: TripRepository) {
                         runCatching { repository.deleteTrip(candidate.id) }
                             .onSuccess {
                                 tripRows = repository.allLocalTrips()
-                                if (active?.id == candidate.id) active = null
+                                if (active?.id == candidate.id) {
+                                    active = null
+                                    page = AppPage.HOME.name
+                                }
                                 showMessage("行程记录已删除")
                             }.onFailure { showMessage(it.message ?: "删除失败，请检查网络") }
                         busy = false
                     }
                 }) { Text("删除") }
             },
-            dismissButton = { TextButton(onClick = { deleteCandidate = null }) { Text("取消") } }
+            dismissButton = { TextButton(onClick = { deleteCandidate = null }) { Text("取消") } },
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp
         )
     }
 }
@@ -571,109 +649,102 @@ fun TripShareApp(repository: TripRepository) {
 private fun HomePage(
     active: LocalTripSummary?,
     onCreate: () -> Unit,
-    onResume: (LocalTripSummary) -> Unit,
     onOpenActive: (LocalTripSummary) -> Unit,
-    onHistory: () -> Unit,
-    onSettings: () -> Unit
+    onHistory: () -> Unit
 ) {
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("把旅途位置，安心分享给家人。", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("按间隔记录真实位置，不规划路线。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        active?.takeIf { it.isActive }?.let { trip ->
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.ShareLocation, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(8.dp))
-                        Text("有一段行程尚未结束", fontWeight = FontWeight.SemiBold)
-                    }
-                    Text(trip.title, style = MaterialTheme.typography.titleMedium)
-                    Text("上次开始于 ${formatDateTime(trip.startedAt)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = { onResume(trip) }, modifier = Modifier.weight(1f)) { Text("继续记录") }
-                        OutlinedButton(onClick = { onOpenActive(trip) }, modifier = Modifier.weight(1f)) { Text("查看行程") }
-                    }
-                }
-            }
-        }
-        Button(onClick = onCreate, modifier = Modifier.fillMaxWidth().height(58.dp), enabled = active?.isActive != true) {
-            Icon(Icons.Default.AddLocationAlt, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text("创建位置共享行程")
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            QuickAction(Icons.Default.History, "行程历史", onHistory, Modifier.weight(1f))
-            QuickAction(Icons.Default.Settings, "记录设置", onSettings, Modifier.weight(1f))
-        }
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))) {
-            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
-                Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(10.dp))
-                Text("只有你主动开始后，应用才会在后台记录位置。行程到期或你手动结束时，采集会停止。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val currentTrip = active?.takeIf { it.isActive }
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(currentTrip?.id) {
+        if (currentTrip != null) {
+            while (true) {
+                delay(30_000)
+                now = System.currentTimeMillis()
             }
         }
     }
-}
-
-@Composable
-private fun QuickAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Card(modifier.clickable(onClick = onClick), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Text(label, fontWeight = FontWeight.Medium)
+    Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 14.dp)) {
+        Spacer(Modifier.weight(0.75f))
+        if (currentTrip == null) {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("开始一次位置共享", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "上车后开始，家人打开链接即可看到你的位置。",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                val currentState = tripUiState(currentTrip, currentTrip.latestPositionAt, now)
+                TripStatus(currentState, currentTrip.latestPositionAt, now)
+                TripTitle(currentTrip, now)
+                Text("行程正在共享", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
+        Spacer(Modifier.weight(1.25f))
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            PrimaryButton(
+                text = if (currentTrip == null) "开始共享" else "查看共享中",
+                onClick = { currentTrip?.let(onOpenActive) ?: onCreate() },
+                enabled = true
+            )
+            TextButton(onClick = onHistory, modifier = Modifier.fillMaxWidth()) {
+                Text("查看历史行程", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Spacer(Modifier.height(4.dp))
     }
 }
 
 @Composable
 private fun CreateTripPage(
-    origin: PlaceMarker?, destination: PlaceMarker?, mode: TrackingMode, interval: Int, customInterval: String,
-    maxShare: Int, busy: Boolean, onOrigin: () -> Unit, onDestination: () -> Unit, onRelocate: () -> Unit,
+    origin: PlaceMarker?, originLocationPlaceholder: String, destination: PlaceMarker?, mode: TrackingMode, interval: Int, customInterval: String,
+    maxShare: Int, busy: Boolean, error: String?, onOrigin: () -> Unit, onDestination: () -> Unit, onRelocate: () -> Unit,
     onMode: (TrackingMode) -> Unit, onInterval: (Int) -> Unit, onCustomInterval: (String) -> Unit,
     onMaxShare: (Int) -> Unit, onStart: () -> Unit
 ) {
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
-        Text("先确认行程信息，目的地可以留空。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("出发地", fontWeight = FontWeight.SemiBold)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = origin?.name ?: "",
-                    onValueChange = {},
-                    readOnly = true,
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("自动获取当前位置") },
-                    leadingIcon = { Icon(Icons.Default.LocationOn, null) },
-                    shape = RoundedCornerShape(14.dp)
-                )
-                IconButton(onClick = onRelocate, enabled = !busy) { Icon(Icons.Default.MyLocation, "重新定位") }
-            }
-            TextButton(onClick = onOrigin) { Text("搜索或修改出发地") }
-            if (origin != null) Text("起点标记不代替设备实际采集的第一个位置。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("目的地", fontWeight = FontWeight.SemiBold)
-            OutlinedTextField(
-                value = destination?.name ?: "",
-                onValueChange = {},
-                readOnly = true,
-                modifier = Modifier.fillMaxWidth().clickable(onClick = onDestination),
-                placeholder = { Text("目的地（选填）") },
-                leadingIcon = { Icon(Icons.Default.LocationOn, null) },
-                trailingIcon = { TextButton(onClick = onDestination) { Text("搜索") } },
-                shape = RoundedCornerShape(14.dp)
+    var showAdvanced by rememberSaveable { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            LocationField(
+                title = "出发地",
+                value = origin?.name,
+                placeholder = originLocationPlaceholder,
+                onClick = onOrigin,
+                trailingIcon = Icons.Default.MyLocation,
+                onTrailingClick = onRelocate
             )
-            if (destination != null) Text("仅作为地图标记，不用于路线规划。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            LocationField(
+                title = "目的地（选填）",
+                value = destination?.name,
+                placeholder = "可留空",
+                onClick = onDestination
+            )
+            Text("目的地可留空，开始后将自动记录位置并分享。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Surface(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { showAdvanced = true },
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Row(Modifier.padding(horizontal = 20.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("高级设置", modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium, style = MaterialTheme.typography.titleMedium)
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            error?.let {
+                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            }
         }
-        SettingsFields(
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 24.dp, vertical = 12.dp)) {
+            PrimaryButton(text = if (busy) "正在开始…" else "开始共享", onClick = onStart, enabled = !busy)
+        }
+    }
+    if (showAdvanced) {
+        AdvancedSettingsSheet(
             mode = mode,
             interval = interval,
             customInterval = customInterval,
@@ -681,12 +752,9 @@ private fun CreateTripPage(
             onMode = onMode,
             onInterval = onInterval,
             onCustomInterval = onCustomInterval,
-            onMaxShare = onMaxShare
+            onMaxShare = onMaxShare,
+            onDismiss = { showAdvanced = false }
         )
-        Button(onClick = onStart, enabled = !busy, modifier = Modifier.fillMaxWidth().height(56.dp)) {
-            Text(if (busy) "正在准备行程…" else "开始行程")
-        }
-        Spacer(Modifier.height(8.dp))
     }
 }
 
@@ -696,21 +764,21 @@ private fun SettingsFields(
     onMode: (TrackingMode) -> Unit, onInterval: (Int) -> Unit, onCustomInterval: (String) -> Unit,
     onMaxShare: (Int) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("轨迹记录模式", fontWeight = FontWeight.SemiBold)
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("位置记录模式", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         ChoiceRow(
             selected = mode == TrackingMode.STANDARD,
             title = "标准模式",
-            subtitle = "按所选间隔采集并同步，较省电",
+            subtitle = "按照设定间隔记录位置，较省电。",
             onClick = { onMode(TrackingMode.STANDARD) }
         )
         ChoiceRow(
             selected = mode == TrackingMode.DETAILED,
             title = "详细轨迹",
-            subtitle = "每分钟采集，按所选间隔批量同步，耗电较多",
+            subtitle = "更频繁记录轨迹，耗电更高。",
             onClick = { onMode(TrackingMode.DETAILED) }
         )
-        Text(if (mode == TrackingMode.DETAILED) "上传间隔" else "位置更新间隔", fontWeight = FontWeight.SemiBold)
+        Text("位置更新间隔", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(60, 300, 600, 900).forEach { seconds ->
                 val label = when (seconds) { 60 -> "1 分"; 300 -> "5 分"; 600 -> "10 分"; else -> "15 分" }
@@ -720,14 +788,23 @@ private fun SettingsFields(
         OutlinedTextField(
             value = customInterval,
             onValueChange = { text -> onCustomInterval(text.filter(Char::isDigit).take(2)) },
-            label = { Text("自定义间隔（分钟，1–60）") },
+            label = { Text("自定义间隔（分钟）") },
             placeholder = { Text("默认 5 分钟") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp)
+            shape = RoundedCornerShape(14.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                focusedBorderColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                focusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                cursorColor = MaterialTheme.colorScheme.onSurface
+            )
         )
-        Text("最长共享时长", fontWeight = FontWeight.SemiBold)
+        Text("最长共享时间", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(3_600, 21_600, 43_200, 86_400).forEach { seconds ->
                 IntervalChoice(
@@ -739,18 +816,52 @@ private fun SettingsFields(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AdvancedSettingsSheet(
+    mode: TrackingMode, interval: Int, customInterval: String, maxShare: Int,
+    onMode: (TrackingMode) -> Unit, onInterval: (Int) -> Unit, onCustomInterval: (String) -> Unit,
+    onMaxShare: (Int) -> Unit, onDismiss: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = MaterialTheme.colorScheme.outlineVariant) }
+    ) {
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = 680.dp).verticalScroll(rememberScrollState()).imePadding()
+                .navigationBarsPadding().padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Text("高级设置", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            SettingsFields(mode, interval, customInterval, maxShare, onMode, onInterval, onCustomInterval, onMaxShare)
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
 @Composable
 private fun ChoiceRow(selected: Boolean, title: String, subtitle: String, onClick: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick),
-        color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant),
         shape = RoundedCornerShape(14.dp)
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(if (selected) Icons.Default.CheckCircle else Icons.Default.Route, null, tint = MaterialTheme.colorScheme.primary)
+            Box(
+                Modifier.size(20.dp).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.dp, if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                if (selected) Box(Modifier.size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurface))
+            }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, fontWeight = FontWeight.SemiBold)
+                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -761,181 +872,198 @@ private fun ChoiceRow(selected: Boolean, title: String, subtitle: String, onClic
 private fun IntervalChoice(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
         modifier = Modifier.clip(CircleShape).clickable(onClick = onClick),
-        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+        color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant),
         shape = CircleShape
     ) {
-        Text(label, modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp), color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 
 @Composable
 private fun ActiveTripPage(
-    trip: LocalTripSummary, repository: TripRepository, onSettings: () -> Unit, onEnd: () -> Unit,
-    onRevoke: () -> Unit, onCopy: (String) -> Unit, onResume: () -> Unit, onHistory: () -> Unit
+    trip: LocalTripSummary, repository: TripRepository, onEnd: () -> Unit, onCopy: (String) -> Unit
 ) {
-    val context = LocalContext.current
     val localPoints by repository.observePoints(trip.id).collectAsStateWithLifecycle(initialValue = emptyList())
     val pending by repository.observePendingCount(trip.id).collectAsStateWithLifecycle(initialValue = 0)
     val rejected by repository.observeRejectedCount(trip.id).collectAsStateWithLifecycle(initialValue = 0)
-    var showLocalPoints by rememberSaveable(trip.id) { mutableStateOf(false) }
-    var showMap by rememberSaveable(trip.id) { mutableStateOf(true) }
-    val isActive = trip.isActive
     val latest = localPoints.lastOrNull()
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    var copied by rememberSaveable(trip.id) { mutableStateOf(false) }
+    LaunchedEffect(trip.id) {
+        while (true) {
+            delay(30_000)
+            now = System.currentTimeMillis()
+        }
+    }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(1_000)
+            copied = false
+        }
+    }
+    val latestAt = latest?.capturedAt ?: trip.latestPositionAt
+    val uiState = tripUiState(trip, latestAt, now)
+    val shareUrl = trip.shareUrl?.takeIf { trip.canShare }
+
+    Column(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                TripStatus(uiState, latestAt, now)
+                TripTitle(trip, now)
+            }
+            TripMap(shareUrl = shareUrl, tripEnded = !trip.isActive)
+            TripSummary(
+                state = uiState,
+                latestAt = latestAt,
+                point = latest,
+                pendingCount = pending,
+                rejectedCount = rejected
+            )
+            if (uiState == TripUiState.STALE) StaleLocationIndicator()
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("家人查看链接", fontWeight = FontWeight.Medium)
+                Text(
+                    if (shareUrl != null) "家人可以通过链接查看你的行程" else if (trip.isShareExpired) "分享链接已过期，行程记录仍保留。" else "分享链接已撤销，行程记录仍保留。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (!trip.isActive) {
+                Text("本次行程已完成，仍可查看历史轨迹。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            PrimaryButton(
+                text = if (copied) "已复制" else "复制链接",
+                onClick = {
+                    if (shareUrl != null) {
+                        onCopy(shareUrl)
+                        copied = true
+                    }
+                },
+                enabled = shareUrl != null
+            )
+            if (trip.isActive) SecondaryButton(text = "结束行程", onClick = onEnd)
+        }
+    }
+}
+
+@Composable
+private fun TripMap(shareUrl: String?, tripEnded: Boolean) {
+    val mapUrl = shareUrl?.let { if (it.contains('?')) "$it&embed=map" else "$it?embed=map" }
+    Surface(
+        modifier = Modifier.fillMaxWidth().height(380.dp),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(10.dp).clip(CircleShape).background(if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant))
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (isActive) "行程进行中" else "行程已结束", fontWeight = FontWeight.SemiBold)
-                }
-                Text(trip.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                if (trip.origin != null && trip.destination != null) Text("${trip.origin.name} → ${trip.destination.name}")
-                else if (trip.origin != null) Text("从${trip.origin.name}出发")
-                Text("开始于 ${formatDateTime(trip.startedAt)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                HorizontalDivider()
-                InfoLine(Icons.Default.AccessTime, "最近定位", latest?.capturedAt?.let(::formatDateTime) ?: trip.latestPositionAt?.let(::formatDateTime) ?: "尚无位置")
-                InfoLine(Icons.Default.SignalCellularAlt, "同步状态", if (pending == 0 && rejected == 0) "已同步" else "$pending 个待同步 · $rejected 个被服务器拒绝")
-                if (latest?.speedMps != null) InfoLine(Icons.Default.Route, "采样时速度", "${(latest.speedMps * 3.6).roundToLong()} km/h")
-                val eta = latest?.let { roughEta(it, trip.destination) }
-                if (eta != null) InfoLine(Icons.Default.AccessTime, "到达时间估算", eta)
-                if (trip.destination != null) Text("到达时间为直线距离与当前采样速度的粗略估算，不代表实际路线或行程承诺。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-
-        val shareUrl = trip.shareUrl?.takeIf { trip.canShare }
-        if (shareUrl != null) {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Link, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(8.dp))
-                        Text("家人查看链接", fontWeight = FontWeight.SemiBold)
-                    }
-                    Text(shareUrl, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { onCopy(shareUrl) }, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Default.ContentCopy, null); Spacer(Modifier.width(7.dp)); Text("复制链接")
-                        }
-                        OutlinedButton(onClick = onRevoke, modifier = Modifier.weight(1f)) { Text("撤销链接") }
-                    }
-                }
-            }
-        } else if (trip.shareRevokedAt != null || trip.isShareExpired) {
-            InfoBanner(if (trip.isShareExpired) "分享链接已过期，无法再通过链接查看。行程历史仍保留。" else "分享链接已撤销。行程历史仍保留。")
-        }
-
-        if (shareUrl != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("家人视角地图", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                TextButton(onClick = { showMap = !showMap }) { Text(if (showMap) "收起" else "查看") }
-            }
-            if (showMap) {
-                Card(shape = RoundedCornerShape(18.dp)) {
-                    AndroidView(
-                        modifier = Modifier.fillMaxWidth().height(320.dp),
-                        factory = { viewContext -> WebView(viewContext).apply {
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.setSupportZoom(false)
-                            webChromeClient = WebChromeClient()
-                            webViewClient = WebViewClient()
-                            loadUrl(shareUrl)
-                        } },
-                        update = { view -> if (view.url != shareUrl) view.loadUrl(shareUrl) }
-                    )
-                }
-            }
-        }
-
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Route, null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(8.dp))
-                    Text("本机记录", fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.weight(1f))
-                    Text("${localPoints.size} 点", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Text("未同步位置仅保存在本机，网络恢复后会自动补传。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = { showLocalPoints = !showLocalPoints }, enabled = localPoints.any { it.syncState != "synced" }) {
-                    Text(if (showLocalPoints) "收起未同步位置" else "查看未同步位置（${localPoints.count { it.syncState != "synced" }}）")
-                }
-                if (showLocalPoints) {
-                    localPoints.filter { it.syncState != "synced" }.takeLast(30).asReversed().forEach { LocalPointRow(it) }
-                }
-            }
-        }
-
-        if (isActive) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = onSettings, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.Settings, null); Spacer(Modifier.width(6.dp)); Text("行程设置")
-                }
-                Button(onClick = onEnd, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.StopCircle, null); Spacer(Modifier.width(6.dp)); Text("结束行程")
-                }
-            }
-            OutlinedButton(onClick = onResume, modifier = Modifier.fillMaxWidth()) { Text("继续后台记录") }
+        if (mapUrl != null) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { viewContext -> WebView(viewContext).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.setSupportZoom(false)
+                    isVerticalScrollBarEnabled = false
+                    overScrollMode = android.view.View.OVER_SCROLL_NEVER
+                    webChromeClient = WebChromeClient()
+                    webViewClient = WebViewClient()
+                    loadUrl(mapUrl)
+                } },
+                update = { view -> if (view.url != mapUrl) view.loadUrl(mapUrl) }
+            )
         } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = onHistory, modifier = Modifier.weight(1f)) { Text("行程历史") }
-                Button(onClick = onSettings, modifier = Modifier.weight(1f)) { Text("查看设置") }
+            Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Spacer(Modifier.weight(1f))
+                Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
+                Text(if (tripEnded) "地图暂时无法打开" else "等待可查看的位置", fontWeight = FontWeight.Medium)
+                Text("已记录的位置会保留在行程中。", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.weight(1f))
             }
         }
-        Spacer(Modifier.height(8.dp))
     }
 }
 
 @Composable
-private fun InfoLine(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, value: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(9.dp))
-        Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(0.8f))
-        Text(value, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1.2f))
-    }
-}
-
-@Composable
-private fun LocalPointRow(point: PositionEntity) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(formatDateTime(point.capturedAt), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-            Text(if (point.syncState == "rejected") "上传失败" else "待同步", color = if (point.syncState == "rejected") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+private fun TripSummary(
+    state: TripUiState, latestAt: String?, point: PositionEntity?, pendingCount: Int, rejectedCount: Int
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        val updated = latestAt?.let(::formatClock) ?: "尚未收到位置"
+        Text(
+            when (state) {
+                TripUiState.ACTIVE -> "最近更新于 $updated · 正常共享中"
+                TripUiState.STALE -> "最近更新于 $updated · 暂未更新"
+                TripUiState.ENDED -> "最近更新于 $updated · 已结束"
+            },
+            fontWeight = FontWeight.Medium
+        )
+        if (state == TripUiState.ACTIVE) {
+            point?.takeIf(::hasReliableSpeed)?.let { Text("时速约 ${((it.speedMps ?: 0.0) * 3.6).roundToLong()} km/h", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
-        Text("${point.lat}, ${point.lon} · 精度 ${point.accuracyM.roundToLong()} 米", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        point.syncError?.let { Text("服务器响应：$it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-        HorizontalDivider(Modifier.padding(top = 5.dp))
+        when {
+            pendingCount > 0 -> Text("$pendingCount 个位置等待同步", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            rejectedCount > 0 -> Text("$rejectedCount 个位置未能同步", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun StaleLocationIndicator() {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant).padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurfaceVariant))
+        Spacer(Modifier.width(10.dp))
+        Text("当前位置可能不是实时位置", color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
 private fun HistoryPage(
     trips: List<LocalTripSummary>, busy: Boolean, onRefresh: () -> Unit,
-    onOpen: (LocalTripSummary) -> Unit, onDelete: (LocalTripSummary) -> Unit
+    onOpen: (LocalTripSummary) -> Unit
 ) {
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("已保存 ${trips.size} 段行程", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            IconButton(onClick = onRefresh, enabled = !busy) { Icon(Icons.Default.Refresh, "刷新历史") }
-        }
-        if (trips.isEmpty()) EmptyState("还没有保存的行程")
-        else LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = WindowInsets.navigationBars.asPaddingValues()) {
-            items(trips, key = { it.id }) { trip ->
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    Row(Modifier.fillMaxWidth().clickable { onOpen(trip) }.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                            Text(trip.title, fontWeight = FontWeight.SemiBold)
-                            Text(if (trip.isActive) "进行中" else "已结束 · ${formatDateTime(trip.startedAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        IconButton(onClick = { onDelete(trip) }) { Icon(Icons.Default.DeleteOutline, "删除行程", tint = MaterialTheme.colorScheme.error) }
-                    }
+    var filter by rememberSaveable { mutableStateOf("ALL") }
+    val visibleTrips = when (filter) {
+        "ACTIVE" -> trips.filter { it.isActive }
+        "ENDED" -> trips.filterNot { it.isActive }
+        else -> trips
+    }
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 8.dp)) {
+        Row(Modifier.fillMaxWidth().clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant).padding(4.dp)) {
+            listOf("ALL" to "全部", "ACTIVE" to "进行中", "ENDED" to "已结束").forEach { (key, label) ->
+                val selected = filter == key
+                Surface(
+                    modifier = Modifier.weight(1f).clip(CircleShape).clickable { filter = key },
+                    shape = CircleShape,
+                    color = if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Text(label, modifier = Modifier.padding(vertical = 11.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("${visibleTrips.size} 段行程", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            IconButton(onClick = onRefresh, enabled = !busy) { Icon(Icons.Default.Refresh, "刷新历史", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        if (visibleTrips.isEmpty()) EmptyState(if (trips.isEmpty()) "还没有历史行程" else "此筛选下没有行程")
+        else LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = WindowInsets.navigationBars.asPaddingValues()
+        ) {
+            items(visibleTrips, key = { it.id }) { trip -> TripHistoryItem(trip, onClick = { onOpen(trip) }) }
         }
     }
 }
@@ -948,14 +1076,186 @@ private fun SettingsPage(current: LocalTripSummary?, busy: Boolean, onSave: (Tra
     var interval by remember(current?.id) { mutableStateOf(current?.let { if (it.mode == TrackingMode.DETAILED) it.uploadIntervalSec else it.sampleIntervalSec } ?: prefs.getInt("interval", 300)) }
     var custom by remember(current?.id) { mutableStateOf("") }
     var maxShare by remember(current?.id) { mutableStateOf(current?.maxShareSeconds ?: prefs.getInt("max_share", 86_400)) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Text(if (current == null) "设置新行程的默认记录方式。" else "修改当前行程的采集与上传频率。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        SettingsFields(mode, interval, custom, maxShare, { mode = it }, { interval = it; custom = "" }, { custom = it }, { maxShare = it })
-        Button(
-            onClick = { onSave(mode, custom.toIntOrNull()?.coerceIn(1, 60)?.times(60) ?: interval, maxShare) },
-            enabled = !busy,
-            modifier = Modifier.fillMaxWidth().height(56.dp)
-        ) { Text(if (busy) "正在保存…" else "保存设置") }
+    Column(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Text(if (current == null) "为新行程选择默认记录方式。" else "调整这次行程的位置记录方式。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SettingsFields(mode, interval, custom, maxShare, { mode = it }, { interval = it; custom = "" }, { custom = it }, { maxShare = it })
+        }
+        Column(Modifier.navigationBarsPadding().padding(horizontal = 24.dp, vertical = 12.dp)) {
+            PrimaryButton(
+                text = if (busy) "正在保存…" else "保存设置",
+                onClick = { onSave(mode, custom.toIntOrNull()?.coerceIn(1, 60)?.times(60) ?: interval, maxShare) },
+                enabled = !busy
+            )
+        }
+    }
+}
+
+private enum class TripUiState { ACTIVE, STALE, ENDED }
+
+@Composable
+private fun HomeOverflowMenu(onSettings: () -> Unit, onAbout: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }) { Icon(Icons.Default.MoreVert, contentDescription = "更多") }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("高级设置") }, leadingIcon = { Icon(Icons.Default.Settings, null) }, onClick = { expanded = false; onSettings() })
+            DropdownMenuItem(text = { Text("关于同行") }, onClick = { expanded = false; onAbout() })
+        }
+    }
+}
+
+@Composable
+private fun TripOverflowMenu(
+    trip: LocalTripSummary,
+    onSettings: () -> Unit,
+    onResume: () -> Unit,
+    onRevoke: () -> Unit,
+    onDelete: () -> Unit,
+    onHistory: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }) { Icon(Icons.Default.MoreVert, contentDescription = "更多行程操作") }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (trip.isActive) {
+                DropdownMenuItem(text = { Text("继续后台记录") }, leadingIcon = { Icon(Icons.Default.MyLocation, null) }, onClick = { expanded = false; onResume() })
+                DropdownMenuItem(text = { Text("行程设置") }, leadingIcon = { Icon(Icons.Default.Settings, null) }, onClick = { expanded = false; onSettings() })
+                if (trip.canShare) DropdownMenuItem(text = { Text("撤销查看链接") }, leadingIcon = { Icon(Icons.Default.Link, null) }, onClick = { expanded = false; onRevoke() })
+            } else {
+                DropdownMenuItem(text = { Text("删除行程") }, leadingIcon = { Icon(Icons.Default.DeleteOutline, null) }, onClick = { expanded = false; onDelete() })
+            }
+            DropdownMenuItem(text = { Text("历史行程") }, leadingIcon = { Icon(Icons.Default.History, null) }, onClick = { expanded = false; onHistory() })
+        }
+    }
+}
+
+@Composable
+private fun PrimaryButton(text: String, onClick: () -> Unit, enabled: Boolean = true) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth().height(58.dp),
+        shape = RoundedCornerShape(22.dp)
+    ) { Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium) }
+}
+
+@Composable
+private fun SecondaryButton(text: String, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().height(54.dp),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) { Text(text, color = MaterialTheme.colorScheme.onSurface) }
+}
+
+@Composable
+private fun LocationField(
+    title: String,
+    value: String?,
+    placeholder: String,
+    onClick: () -> Unit,
+    trailingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    onTrailingClick: (() -> Unit)? = null
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable(onClick = onClick),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(Modifier.padding(horizontal = 22.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.LocationOn, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(23.dp))
+                Spacer(Modifier.width(16.dp))
+                Text(
+                    value ?: placeholder,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = if (value == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+                if (trailingIcon != null && onTrailingClick != null) {
+                    IconButton(onClick = onTrailingClick, modifier = Modifier.size(44.dp)) {
+                        Icon(trailingIcon, contentDescription = "重新定位", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TripStatus(state: TripUiState, latestAt: String?, now: Long) {
+    val label = when (state) {
+        TripUiState.ACTIVE -> "正常共享中"
+        TripUiState.STALE -> "暂未更新"
+        TripUiState.ENDED -> "已结束"
+    }
+    val detail = latestAt?.let { " · ${relativeUpdate(it, now)}" }.orEmpty()
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier.size(8.dp).clip(CircleShape).background(
+                if (state == TripUiState.ACTIVE) androidx.compose.ui.graphics.Color(0xFF82978C) else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(label + detail, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun TripTitle(trip: LocalTripSummary, now: Long = System.currentTimeMillis()) {
+    val route = when {
+        trip.origin != null && trip.destination != null -> "${trip.origin.name} → ${trip.destination.name}"
+        trip.origin != null -> "从${trip.origin.name}出发"
+        else -> trip.title.ifBlank { "我的行程" }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text(route, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+        Text("已持续 ${formatDuration(trip.startedAt, trip.endedAt, now)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun TripHistoryItem(trip: LocalTripSummary, onClick: () -> Unit) {
+    val state = if (trip.isActive) "共享中" else "已结束"
+    Surface(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable(onClick = onClick),
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 17.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(54.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                Icon(if (trip.destination != null) Icons.Default.Route else Icons.Default.LocationOn, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(23.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(tripHeading(trip), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                Text(
+                    "${formatHistoryTimestamp(trip.startedAt)} · ${formatDuration(trip.startedAt, trip.endedAt, System.currentTimeMillis())}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(state, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun EmptyState(text: String) {
+    Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -974,7 +1274,18 @@ private fun PlaceSearchDialog(repository: TripRepository, onDismiss: () -> Unit,
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = query, onValueChange = { query = it }, label = { Text("地点名称") },
-                        singleLine = true, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp)
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            focusedBorderColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                            focusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            cursorColor = MaterialTheme.colorScheme.onSurface
+                        )
                     )
                     IconButton(onClick = {
                         if (query.isBlank()) return@IconButton
@@ -992,48 +1303,102 @@ private fun PlaceSearchDialog(repository: TripRepository, onDismiss: () -> Unit,
                     }
                 }
                 message?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                LazyColumn(Modifier.height(280.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(results) { place ->
-                        Column(Modifier.fillMaxWidth().clickable { onSelect(place) }.padding(vertical = 9.dp)) {
-                            Text(place.name, fontWeight = FontWeight.Medium)
-                            place.address?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                            HorizontalDivider(Modifier.padding(top = 7.dp))
+                if (results.isNotEmpty()) {
+                    LazyColumn(Modifier.heightIn(max = 280.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        items(results) { place ->
+                            Column(Modifier.fillMaxWidth().clickable { onSelect(place) }.padding(vertical = 9.dp)) {
+                                Text(place.name, fontWeight = FontWeight.Medium)
+                                place.address?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                HorizontalDivider(Modifier.padding(top = 7.dp))
+                            }
                         }
                     }
                 }
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp
     )
 }
 
-@Composable
-private fun EmptyState(text: String) {
-    Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun InfoBanner(text: String) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Text(text, Modifier.padding(15.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-private fun pageTitle(page: String, settingsTripId: String?): String = when (page) {
-    AppPage.HOME.name -> "行程共享"
+private fun pageTitle(page: String, settingsTripId: String?, active: LocalTripSummary?): String = when (page) {
+    AppPage.HOME.name -> "同行"
     AppPage.CREATE.name -> "创建行程"
-    AppPage.ACTIVE.name -> "行程详情"
-    AppPage.HISTORY.name -> "行程历史"
-    AppPage.SETTINGS.name -> if (settingsTripId == null) "记录设置" else "行程设置"
-    else -> "行程共享"
+    AppPage.ACTIVE.name -> if (active?.isActive == true) "共享中" else "已结束"
+    AppPage.HISTORY.name -> "历史行程"
+    AppPage.SETTINGS.name -> if (settingsTripId == null) "高级设置" else "行程设置"
+    else -> "同行"
 }
 
-private fun formatDateTime(value: String): String = runCatching {
-    DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm").withZone(ZoneId.systemDefault()).format(Instant.parse(value))
+private fun tripUiState(trip: LocalTripSummary, latestAt: String?, now: Long): TripUiState {
+    if (!trip.isActive) return TripUiState.ENDED
+    val captured = latestAt?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } ?: return TripUiState.ACTIVE
+    val staleAfterMillis = (trip.uploadIntervalSec * 2L + 120L) * 1_000L
+    return if (now - captured > staleAfterMillis) TripUiState.STALE else TripUiState.ACTIVE
+}
+
+private fun tripHeading(trip: LocalTripSummary): String = when {
+    trip.origin != null && trip.destination != null -> "${trip.origin.name} → ${trip.destination.name}"
+    trip.origin != null -> "从${trip.origin.name}出发"
+    else -> trip.title.ifBlank { "我的行程" }
+}
+
+private fun relativeUpdate(value: String, now: Long): String = runCatching {
+    val elapsed = ((now - Instant.parse(value).toEpochMilli()) / 1_000L).coerceAtLeast(0)
+    when {
+        elapsed < 60 -> "刚刚更新"
+        elapsed < 3_600 -> "${elapsed / 60} 分钟前更新"
+        elapsed < 86_400 -> "${elapsed / 3_600} 小时前更新"
+        else -> "${elapsed / 86_400} 天前更新"
+    }
+}.getOrDefault("最近更新")
+
+private fun formatClock(value: String): String = runCatching {
+    DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()).format(Instant.parse(value))
+}.getOrDefault("--:--")
+
+private fun formatHistoryTimestamp(value: String): String = runCatching {
+    val zoned = Instant.parse(value).atZone(ZoneId.systemDefault())
+    val today = java.time.LocalDate.now(ZoneId.systemDefault())
+    val dateLabel = when (zoned.toLocalDate()) {
+        today -> "今天"
+        today.minusDays(1) -> "昨天"
+        else -> "${zoned.monthValue}月${zoned.dayOfMonth}日"
+    }
+    "$dateLabel ${zoned.format(DateTimeFormatter.ofPattern("HH:mm"))}"
 }.getOrDefault(value)
+
+private fun formatDuration(startedAt: String, endedAt: String?, now: Long): String = runCatching {
+    val start = Instant.parse(startedAt)
+    val end = endedAt?.let(Instant::parse) ?: Instant.ofEpochMilli(now)
+    val minutes = Duration.between(start, end).toMinutes().coerceAtLeast(0)
+    val days = minutes / 1_440
+    val hours = (minutes % 1_440) / 60
+    val remainder = minutes % 60
+    when {
+        days > 0 -> "$days 天 ${hours} 小时"
+        hours > 0 -> "$hours 小时 ${remainder} 分"
+        else -> "$remainder 分钟"
+    }
+}.getOrDefault("--")
+
+private fun intervalLabel(seconds: Int): String = if (seconds % 60 == 0) "${seconds / 60} 分钟" else "$seconds 秒"
+
+private fun maxShareLabel(seconds: Int): String = when (seconds) {
+    3_600 -> "1 小时"
+    21_600 -> "6 小时"
+    43_200 -> "12 小时"
+    else -> "24 小时"
+}
+
+private fun hasReliableSpeed(point: PositionEntity): Boolean {
+    val speed = point.speedMps ?: return false
+    if (!speed.isFinite() || speed !in 0.0..120.0) return false
+    val accuracy = point.speedAccuracyMps
+    return accuracy == null || (accuracy.isFinite() && accuracy in 0.0..5.0)
+}
 
 private fun copyText(context: Context, label: String, value: String) {
     (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText(label, value))
@@ -1041,26 +1406,4 @@ private fun copyText(context: Context, label: String, value: String) {
 
 private suspend fun latestLocalTime(repository: TripRepository, tripId: String): String {
     return withContext(Dispatchers.IO) { repository.latestPoint(tripId)?.capturedAt ?: Instant.now().toString() }
-}
-
-private fun roughEta(point: PositionEntity, destination: PlaceMarker?): String? {
-    if (destination == null) return null
-    val speed = point.speedMps?.takeIf { it > 1.0 && it.isFinite() } ?: return null
-    val distance = haversineMeters(point.lat, point.lon, destination.lat, destination.lon)
-    val seconds = (distance / speed).roundToLong().coerceAtLeast(0)
-    val duration = Duration.ofSeconds(seconds)
-    val text = when {
-        duration.toHours() > 0 -> "${duration.toHours()} 小时 ${duration.toMinutesPart()} 分"
-        duration.toMinutes() > 0 -> "${duration.toMinutes()} 分钟"
-        else -> "少于 1 分钟"
-    }
-    return "直线粗略估算约 $text"
-}
-
-private fun haversineMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-    val radius = 6_371_000.0
-    val dLat = Math.toRadians(lat2 - lat1)
-    val dLon = Math.toRadians(lon2 - lon1)
-    val a = sin(dLat / 2).pow(2.0) + cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2).pow(2.0)
-    return radius * 2 * atan2(sqrt(a), sqrt(1 - a))
 }

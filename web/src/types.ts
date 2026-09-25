@@ -32,6 +32,7 @@ export const PublicTripSchema = z.object({
   uploadIntervalSec: z.number().int().positive(),
   mode: z.enum(['standard', 'detailed']),
   latestPositionAt: z.string().datetime({ offset: true }).nullable(),
+  latestPositionLabel: z.string().trim().min(1).nullable().optional(),
   pointCount: z.number().int().nonnegative(),
   latestPosition: PositionSchema.nullable(),
 });
@@ -47,3 +48,4 @@ export type Place = z.infer<typeof PlaceSchema>;
 export type Position = z.infer<typeof PositionSchema>;
 export type PublicTrip = z.infer<typeof PublicTripSchema>;
 export type PositionsResponse = z.infer<typeof PositionsResponseSchema>;
+export type TripUiState = 'ACTIVE' | 'STALE' | 'ENDED';

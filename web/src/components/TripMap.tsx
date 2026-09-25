@@ -6,21 +6,22 @@ import { drawTripOverlays, loadAMap, type AMapInstance, type AMapOverlay } from 
 import { fitLeafletToObservedPositions, drawLeafletTripLayers } from '../lib/leaflet';
 import { wgs84ToGcj02 } from '../lib/geo';
 import { getPreferredMapProvider, type MapProvider } from '../lib/mapProvider';
-import type { Position, PublicTrip } from '../types';
+import type { Position, PublicTrip, TripUiState } from '../types';
 
 interface TripMapProps {
   token: string;
   trip: PublicTrip;
   positions: Position[];
+  currentPositionId: string | null;
   livePositionId: string | null;
+  positionState: TripUiState;
   loading: boolean;
-  onSelectPosition: (position: Position) => void;
   onRetry: () => void;
 }
 
 type LoadedMapProvider = MapProvider | 'loading';
 
-export function TripMap({ token, trip, positions, livePositionId, loading, onSelectPosition, onRetry }: TripMapProps) {
+export function TripMap({ token, trip, positions, currentPositionId, livePositionId, positionState, loading, onRetry }: TripMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const amapMapRef = useRef<AMapInstance | null>(null);
   const amapOverlaysRef = useRef<AMapOverlay[]>([]);
@@ -48,7 +49,7 @@ export function TripMap({ token, trip, positions, livePositionId, loading, onSel
     const createOpenMap = (notice: string | null) => {
       try {
         if (!active || !containerRef.current || leafletMapRef.current) return;
-        const map = L.map(containerRef.current, { zoomControl: true, attributionControl: true, preferCanvas: true });
+        const map = L.map(containerRef.current, { zoomControl: false, attributionControl: true, preferCanvas: true });
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 19,
           attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -107,9 +108,8 @@ export function TripMap({ token, trip, positions, livePositionId, loading, onSel
     if (!mapLoaded) return;
     if (mapProvider === 'amap' && amapMapRef.current && window.AMap) {
       amapOverlaysRef.current.forEach((overlay) => overlay.setMap(null));
-      const drawn = drawTripOverlays(window.AMap, trip, positions, livePositionId, (point) => {
+      const drawn = drawTripOverlays(window.AMap, trip, positions, currentPositionId, livePositionId, positionState, (point) => {
         setSelectedPosition(point);
-        onSelectPosition(point);
       });
       amapOverlaysRef.current = drawn.overlays;
       amapMapRef.current.add(drawn.overlays);
@@ -124,9 +124,8 @@ export function TripMap({ token, trip, positions, livePositionId, loading, onSel
       }
     } else if (mapProvider === 'osm' && leafletMapRef.current) {
       leafletLayersRef.current.forEach((layer) => leafletMapRef.current?.removeLayer(layer));
-      const drawn = drawLeafletTripLayers(leafletMapRef.current, trip, positions, livePositionId, (point) => {
+      const drawn = drawLeafletTripLayers(leafletMapRef.current, trip, positions, currentPositionId, livePositionId, positionState, (point) => {
         setSelectedPosition(point);
-        onSelectPosition(point);
       });
       leafletLayersRef.current = drawn.layers;
       const fallback = trip.latestPosition
@@ -137,7 +136,7 @@ export function TripMap({ token, trip, positions, livePositionId, loading, onSel
       fitLeafletToObservedPositions(leafletMapRef.current, drawn.observedPositions, fallback);
       leafletMapRef.current.invalidateSize();
     }
-  }, [livePositionId, mapLoaded, mapProvider, onSelectPosition, positions, trip]);
+  }, [currentPositionId, livePositionId, mapLoaded, mapProvider, positionState, positions, trip]);
 
   const infoPosition = selectedPosition;
 
@@ -166,16 +165,10 @@ export function TripMap({ token, trip, positions, livePositionId, loading, onSel
       {mapNotice && mapLoaded && <div className="map-provider-note">{mapNotice}</div>}
       {infoPosition && (
         <div className="map-point-hint" role="status">
-          <strong>{new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(infoPosition.capturedAt))}</strong>
-          <span>精度约 {Math.round(infoPosition.accuracyM)} 米</span>
-          <span>{infoPosition.speedMps === null ? '暂无速度数据' : `${(infoPosition.speedMps * 3.6).toFixed(1)} km/h`}</span>
+          <strong>位置记录</strong>
+          <span>{new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(infoPosition.capturedAt))}</span>
         </div>
       )}
-      <div className="map-legend" aria-label="地图标记说明">
-        <span><i className={`legend-dot ${livePositionId ? 'legend-current' : ''}`} />{livePositionId ? '当前有效位置' : '位置记录'}</span>
-        {trip.origin && <span><i className="legend-pin legend-origin" />出发地</span>}
-        {trip.destination && <span><i className="legend-pin legend-destination" />目的地</span>}
-      </div>
     </section>
   );
 }

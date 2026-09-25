@@ -1,4 +1,4 @@
-import type { Position, PublicTrip } from '../types';
+import type { Position, PublicTrip, TripUiState } from '../types';
 import { getLongGapThresholdMs, sortPositions, wgs84ToGcj02 } from './geo';
 
 export type LngLat = [number, number];
@@ -103,20 +103,27 @@ function positionTitle(position: Position) {
     month: '2-digit',
     day: '2-digit',
   }).format(new Date(position.capturedAt));
-  return `采集于 ${localTime} · 精度 ${Math.round(position.accuracyM)} 米`;
+  return `位置记录 · ${localTime}`;
 }
 
-function pointMarkerContent(isLatest: boolean) {
-  return isLatest
-    ? '<div class="map-dot map-dot-current"><span></span></div>'
-    : '<div class="map-dot"><span></span></div>';
+function pointMarkerContent(position: Position, currentPositionId: string | null, livePositionId: string | null, positionState: TripUiState) {
+  const markerClass = position.id === livePositionId
+    ? 'map-dot-current'
+    : position.id === currentPositionId && positionState === 'STALE'
+      ? 'map-dot-stale'
+      : position.id === currentPositionId && positionState === 'ENDED'
+        ? 'map-dot-ended'
+        : '';
+  return `<div class="map-dot ${markerClass}"><span></span></div>`;
 }
 
 export function drawTripOverlays(
   amap: AMapNamespace,
   trip: PublicTrip,
   positions: Position[],
+  currentPositionId: string | null,
   livePositionId: string | null,
+  positionState: TripUiState,
   onSelect: (position: Position) => void,
 ): MapDrawResult {
   const overlays: AMapOverlay[] = [];
@@ -126,12 +133,11 @@ export function drawTripOverlays(
 
   const addPlaceMarker = (place: NonNullable<PublicTrip['origin']>, kind: 'origin' | 'destination') => {
     const position = wgs84ToGcj02(place.lon, place.lat);
-    const symbol = kind === 'origin' ? '起' : '终';
     overlays.push(new amap.Marker({
       position,
       title: place.name,
-      offset: new amap.Pixel(0, -16),
-      content: `<div class="map-pin map-pin-${kind}"><span>${symbol}</span></div>`,
+      offset: new amap.Pixel(-12, -28),
+      content: `<div class="map-pin map-pin-${kind}"><span></span></div>`,
     }));
   };
 
@@ -144,9 +150,9 @@ export function drawTripOverlays(
     if (normalSegment.length > 1) {
       overlays.push(new amap.Polyline({
         path: normalSegment,
-        strokeColor: '#1769aa',
-        strokeWeight: 5,
-        strokeOpacity: 0.9,
+        strokeColor: '#171717',
+        strokeWeight: 4,
+        strokeOpacity: 0.92,
         lineJoin: 'round',
         lineCap: 'round',
       }));
@@ -156,12 +162,12 @@ export function drawTripOverlays(
 
   drawable.forEach((point) => {
     const converted = wgs84ToGcj02(point.lon, point.lat);
-    const isLatest = point.id === livePositionId;
+    const isCurrent = point.id === currentPositionId;
     const marker = new amap.Marker({
       position: converted,
       title: positionTitle(point),
-      offset: new amap.Pixel(-7, -7),
-      content: pointMarkerContent(isLatest),
+      offset: new amap.Pixel(isCurrent ? -11 : -7, isCurrent ? -11 : -7),
+      content: pointMarkerContent(point, currentPositionId, livePositionId, positionState),
     });
     marker.on('click', () => onSelect(point));
     overlays.push(marker);
@@ -174,9 +180,9 @@ export function drawTripOverlays(
         const previousCoord = wgs84ToGcj02(previous.lon, previous.lat);
         overlays.push(new amap.Polyline({
           path: [previousCoord, converted],
-          strokeColor: '#7b8794',
+          strokeColor: '#8b8d89',
           strokeWeight: 3,
-          strokeOpacity: 0.75,
+          strokeOpacity: 0.8,
           strokeStyle: 'dashed',
           strokeDasharray: [8, 8],
           lineJoin: 'round',

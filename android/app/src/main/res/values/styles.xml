@@ -1,9 +1,9 @@
 <resources>
     <style name="Theme.TripShare" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#176B5B</item>
-        <item name="android:statusBarColor">#F7F8F6</item>
-        <item name="android:navigationBarColor">#F7F8F6</item>
+        <item name="android:colorAccent">#171717</item>
+        <item name="android:statusBarColor">#FAFAF8</item>
+        <item name="android:navigationBarColor">#FAFAF8</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>

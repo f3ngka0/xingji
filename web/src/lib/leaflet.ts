@@ -1,5 +1,5 @@
 import L, { type Layer, type Map as LeafletMap, type LatLngExpression } from 'leaflet';
-import type { Position, PublicTrip } from '../types';
+import type { Position, PublicTrip, TripUiState } from '../types';
 import { getLongGapThresholdMs, sortPositions } from './geo';
 
 export interface LeafletDrawResult {
@@ -14,7 +14,7 @@ function positionTitle(position: Position) {
     month: '2-digit',
     day: '2-digit',
   }).format(new Date(position.capturedAt));
-  return `采集于 ${captured} · 精度 ${Math.round(position.accuracyM)} 米`;
+  return `位置记录 · ${captured}`;
 }
 
 function addPlaceMarker(map: LeafletMap, layers: Layer[], place: NonNullable<PublicTrip['origin']>, kind: 'origin' | 'destination') {
@@ -35,7 +35,9 @@ export function drawLeafletTripLayers(
   map: LeafletMap,
   trip: PublicTrip,
   positions: Position[],
+  currentPositionId: string | null,
   livePositionId: string | null,
+  positionState: TripUiState,
   onSelect: (position: Position) => void,
 ): LeafletDrawResult {
   const layers: Layer[] = [];
@@ -50,8 +52,8 @@ export function drawLeafletTripLayers(
   const addPolyline = (path: LatLngExpression[], dashed: boolean) => {
     if (path.length < 2) return;
     const line = L.polyline(path, dashed
-      ? { color: '#7b8794', weight: 3, opacity: 0.75, dashArray: '8 8', lineJoin: 'round', lineCap: 'round' }
-      : { color: '#1769aa', weight: 5, opacity: 0.9, lineJoin: 'round', lineCap: 'round' },
+      ? { color: '#8b8d89', weight: 3, opacity: 0.8, dashArray: '8 8', lineJoin: 'round', lineCap: 'round' }
+      : { color: '#171717', weight: 4, opacity: 0.92, lineJoin: 'round', lineCap: 'round' },
     ).addTo(map);
     layers.push(line);
   };
@@ -63,16 +65,22 @@ export function drawLeafletTripLayers(
   drawable.forEach((point) => {
     const coordinate: LatLngExpression = [point.lat, point.lon];
     observedPositions.push(coordinate);
+    const isCurrent = point.id === currentPositionId;
     const isLive = point.id === livePositionId;
+    const markerClass = isLive
+      ? 'map-dot-current'
+      : isCurrent && positionState === 'STALE'
+        ? 'map-dot-stale'
+        : isCurrent && positionState === 'ENDED'
+          ? 'map-dot-ended'
+          : '';
     const marker = L.marker(coordinate, {
       title: positionTitle(point),
       icon: L.divIcon({
         className: 'leaflet-point-marker',
-        html: isLive
-          ? '<span class="map-dot map-dot-current"><span></span></span>'
-          : '<span class="map-dot"><span></span></span>',
-        iconSize: isLive ? [22, 22] : [14, 14],
-        iconAnchor: isLive ? [11, 11] : [7, 7],
+        html: `<span class="map-dot ${markerClass}"><span></span></span>`,
+        iconSize: isLive || isCurrent ? [22, 22] : [14, 14],
+        iconAnchor: isLive || isCurrent ? [11, 11] : [7, 7],
       }),
     }).addTo(map);
     marker.on('click', () => onSelect(point));
