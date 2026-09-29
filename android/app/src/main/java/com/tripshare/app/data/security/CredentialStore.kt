@@ -30,7 +30,7 @@ class CredentialStore(context: Context) {
 
     fun rotateInstallationId(): String {
         val generated = UUID.randomUUID().toString()
-        installPrefs.edit().putString("installation_id", generated).apply()
+        check(installPrefs.edit().putString("installation_id", generated).commit()) { "无法更新设备安装标识" }
         return generated
     }
 
@@ -50,5 +50,5 @@ class CredentialStore(context: Context) {
     fun shareUrl(tripId: String): String? = runCatching { securePrefs.getString("share_url_$tripId", null) }.getOrNull()
     fun removeShareUrl(tripId: String) { securePrefs.edit().remove("share_url_$tripId").apply() }
 
-    fun clearCredentials() { securePrefs.edit().clear().apply() }
+    fun clearCredentials(): Boolean = runCatching { securePrefs.edit().clear().commit() }.getOrDefault(false)
 }

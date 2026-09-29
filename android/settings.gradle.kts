@@ -25,5 +25,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "TripShare"
+rootProject.name = "Xingji"
 include(":app")

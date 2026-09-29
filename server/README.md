@@ -1,4 +1,4 @@
-# 行程位置共享 API
+# 行迹 API
 
 Node.js 22 + TypeScript + SQLite REST API。位置点在客户端断网时可以延迟补传；服务器保留客户端采集时间，并以幂等位置点 ID 去重。坐标在 API 与数据库中统一采用 WGS-84。
 

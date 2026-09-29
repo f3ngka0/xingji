@@ -1,0 +1,9 @@
+# Use together with docker-compose.yml, starting only server and web.
+# This HTTP entry point is intended for a trusted LAN or VPN.
+services:
+  server:
+    environment:
+      REQUIRE_HTTPS: "false"
+  web:
+    ports:
+      - "${LAN_PORT:-8080}:80"

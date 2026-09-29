@@ -1,6 +1,7 @@
 package com.tripshare.app.data.remote
 
 import android.content.Context
+import com.google.gson.JsonParser
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonElement
 import com.tripshare.app.BuildConfig
@@ -10,6 +11,7 @@ import com.tripshare.app.data.TripSettings
 import com.tripshare.app.data.security.CredentialStore
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
@@ -19,6 +21,9 @@ import retrofit2.http.POST
 import retrofit2.http.PATCH
 import retrofit2.http.Path
 import retrofit2.http.Query
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 data class DeviceRegistrationRequest(val installationId: String)
@@ -122,30 +127,87 @@ interface AmapWebApi {
 
 class TripApiFactory(context: Context, private val credentialStore: CredentialStore) {
     private val appContext = context.applicationContext
+    private val serverAddressStore = ServerAddressStore(appContext)
 
     fun create(): TripApi {
+        val baseUrl = currentServerAddress()
+            ?: throw IllegalStateException("请先在主页更多菜单中设置服务器地址")
         val credentialInterceptor = Interceptor { chain ->
             val request = chain.request()
             val path = request.url.encodedPath
             val isPublicRead = path.startsWith("/api/v1/public/")
             val isRegistration = path == "/api/v1/devices"
-            val credential = if (!isPublicRead && !isRegistration) credentialStore.credential() else null
+            val configuredOrigin = baseUrl.toHttpUrlOrNull()
+            val requestIsConfiguredOrigin = configuredOrigin != null &&
+                request.url.scheme == configuredOrigin.scheme &&
+                request.url.host == configuredOrigin.host &&
+                request.url.port == configuredOrigin.port
+            val credential = if (requestIsConfiguredOrigin && !isPublicRead && !isRegistration) {
+                credentialStore.credential()
+            } else null
             val authorized = if (credential.isNullOrBlank()) request else request.newBuilder()
                 .header("Authorization", "Bearer $credential").build()
             chain.proceed(authorized)
         }
         val client = OkHttpClient.Builder()
             .addInterceptor(credentialInterceptor)
+            .followRedirects(false)
+            .followSslRedirects(false)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(25, TimeUnit.SECONDS)
             .writeTimeout(25, TimeUnit.SECONDS)
             .build()
         val gson = GsonBuilder().serializeNulls().create()
         return Retrofit.Builder()
-            .baseUrl(BuildConfig.API_BASE_URL.ensureTrailingSlash())
+            .baseUrl(baseUrl)
             .client(client)
             .addConverterFactory(GsonConverterFactory.create(gson))
             .build().create(TripApi::class.java)
+    }
+
+    fun currentServerAddress(): String? = serverAddressStore.currentBaseUrl()
+
+    fun isSafeShareUrl(shareUrl: String): Boolean {
+        val share = shareUrl.toHttpUrlOrNull() ?: return false
+        if (share.username.isNotEmpty() || share.password.isNotEmpty()) return false
+        return share.scheme == "https" ||
+            (share.scheme == "http" && ServerAddressValidator.allowsCleartextHost(share.host))
+    }
+
+    fun saveServerAddress(baseUrl: String) = serverAddressStore.save(baseUrl)
+
+    suspend fun verifyServerAddress(baseUrl: String) = withContext(Dispatchers.IO) {
+        val normalized = ServerAddressValidator.normalize(baseUrl)
+        val url = normalized.toHttpUrlOrNull()!!.resolve("healthz")
+            ?: throw IllegalArgumentException("服务器地址无效")
+        val client = OkHttpClient.Builder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(8, TimeUnit.SECONDS)
+            .callTimeout(12, TimeUnit.SECONDS)
+            .build()
+        val request = okhttp3.Request.Builder().url(url).get().build()
+        val response = try {
+            client.newCall(request).execute()
+        } catch (failure: IOException) {
+            throw IOException("暂时无法连接服务器，请检查地址、端口和网络。", failure)
+        }
+        response.use {
+            if (response.code != 200) {
+                throw IOException("服务器健康检查失败（HTTP ${response.code}），请检查地址和网络")
+            }
+            val content = try {
+                response.body?.string() ?: throw IOException("服务器健康检查没有返回内容")
+            } catch (failure: IOException) {
+                throw IOException("读取服务器响应失败，请检查网络后重试。", failure)
+            }
+            val json = runCatching { JsonParser.parseString(content) }.getOrNull()
+            val status = json?.takeIf { it.isJsonObject }?.asJsonObject?.get("status")
+            if (status == null || !status.isJsonPrimitive || !status.asJsonPrimitive.isString || status.asString != "ok") {
+                throw IOException("服务器健康检查响应无效，预期 status 为 ok")
+            }
+        }
     }
 
     fun amapWebApi(): AmapWebApi = Retrofit.Builder()
@@ -155,13 +217,7 @@ class TripApiFactory(context: Context, private val credentialStore: CredentialSt
         .build().create(AmapWebApi::class.java)
 
     fun assertServerConfigured() {
-        val url = BuildConfig.API_BASE_URL
-        require(!url.contains("your-domain.example", ignoreCase = true)) {
-            "请先设置服务器地址 TRIP_API_BASE_URL"
-        }
-        require(url.startsWith("https://", ignoreCase = true) || BuildConfig.DEBUG && url.startsWith("http://", true)) {
-            "正式服务器地址必须使用 HTTPS"
-        }
+        check(currentServerAddress() != null) { "请先在主页更多菜单中设置服务器地址" }
     }
 
     fun amapSearchConfigured() = BuildConfig.AMAP_WEB_SERVICE_KEY.isNotBlank() && BuildConfig.AMAP_WEB_SERVICE_KEY != "CHANGE_ME"
@@ -172,8 +228,6 @@ class TripApiFactory(context: Context, private val credentialStore: CredentialSt
         if (response.status != "1") throw IllegalStateException("高德地点搜索暂不可用")
         return response.tips.orEmpty().mapNotNull { com.tripshare.app.location.AmapPlace.fromTip(it) }
     }
-
-    private fun String.ensureTrailingSlash() = if (endsWith('/')) this else "$this/"
 }
 
 fun PlaceMarker.toDto() = MarkerDto(name, lat, lon)

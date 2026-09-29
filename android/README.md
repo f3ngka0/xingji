@@ -1,4 +1,4 @@
-# 行程共享 Android 客户端
+# 行迹 Android 客户端
 
 Kotlin + Jetpack Compose Android 客户端。位置由 Android 前台服务按用户间隔单次采集；成功采集的数据先写入 Room，再通过 REST API 上传。分享链接在 Keystore-backed 加密偏好中保存。
 
@@ -34,11 +34,11 @@ AMAP_WEB_SERVICE_KEY=
 
 ### 本地服务器联调
 
-模拟器访问开发机服务时，可将 Debug 的 `TRIP_API_BASE_URL` 设置为 `http://10.0.2.2:<端口>/`。HTTP 仅在 Debug Manifest 中开放；Release 必须使用 HTTPS。服务器没有运行或地址仍为占位符时，App 会明确提示，不能创建可分享的本地假行程。
+安装后从首页右上角 **⋮ → 服务器地址** 配置服务端根地址，检查连接后保存，无需重新构建。公开服务器使用 HTTPS；Release 也允许受信任内网 IP 的 HTTP 地址。模拟器访问开发机可填写 `http://10.0.2.2:<端口>/`。`TRIP_API_BASE_URL` 仅作为构建时默认值。服务器没有运行或地址仍为占位符时，App 会明确提示，不能创建可分享的本地假行程。已有本地行程时禁止切换服务器，先结束、同步并删除行程。
 
 ## 构建与测试
 
-需要 JDK 17、Android SDK Platform 35 和 Android Build Tools。Windows PowerShell 示例：
+需要 JDK 17、Android SDK Platform 36 和 Build Tools 37。Windows PowerShell 示例（在 `android/` 中运行）：
 
 ```powershell
 $env:JAVA_HOME = 'C:\\Program Files\\Eclipse Adoptium\\jdk-17'
@@ -46,8 +46,8 @@ $env:ANDROID_HOME = 'C:\\Users\\you\\AppData\\Local\\Android\\Sdk'
 $env:TRIP_API_BASE_URL = 'https://your-domain.example/'
 $env:AMAP_ANDROID_KEY = '从高德开放平台配置的 Android SDK Key'
 $env:AMAP_WEB_SERVICE_KEY = '从高德开放平台配置的 Web 服务 Key'
-..\\gradlew.bat :app:assembleDebug
-..\\gradlew.bat :app:testDebugUnitTest
+.\\gradlew.bat :app:assembleDebug
+.\\gradlew.bat :app:testDebugUnitTest
 ```
 
 APK 输出在 `app/build/outputs/apk/debug/app-debug.apk`。安装到模拟器：
@@ -55,6 +55,8 @@ APK 输出在 `app/build/outputs/apk/debug/app-debug.apk`。安装到模拟器�
 ```powershell
 adb install -r app\\build\\outputs\\apk\\debug\\app-debug.apk
 ```
+
+正式签名 APK 构建方法与 GitHub Release 附件说明见 [发布说明](../docs/RELEASING.md)。
 
 Debug 包名为 `com.tripshare.app.debug`。模拟器应授予精确位置和通知权限，并在系统定位设置中开启定位服务。模拟器内没有真实定位硬件时，可通过 Android Emulator 的 Location 面板设置一个真实坐标用于设备定位测试；应用不会生成随机点。
 

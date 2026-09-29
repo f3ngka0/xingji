@@ -91,6 +91,9 @@ interface TripDao {
     @Query("SELECT * FROM trips ORDER BY startedAt DESC")
     suspend fun allTrips(): List<TripEntity>
 
+    @Query("SELECT (SELECT COUNT(*) FROM trips) + (SELECT COUNT(*) FROM positions)")
+    suspend fun localRecordCount(): Int
+
     @Query("SELECT * FROM positions WHERE tripId = :tripId ORDER BY capturedAt ASC, id ASC")
     fun observePoints(tripId: String): Flow<List<PositionEntity>>
 

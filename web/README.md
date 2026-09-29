@@ -1,4 +1,4 @@
-# 行程共享 Web
+# 行迹 Web
 
 React + TypeScript + Vite 的公开只读分享页。`/trip/:token` 进入即加载地图和行程摘要；网页只使用公开只读 API，不持有客户端管理凭证。
 

@@ -1,6 +1,8 @@
-# 行程位置共享
+# 行迹
 
-乘坐公共交通时，用户主动开始一段行程，Android 定时保存设备真实位置并上传到自己的服务器。家人打开独立分享链接，即可在浏览器中查看最后一次有效位置和按采集时间排列的轨迹。目的地始终是选填项。应用不计算路线，也不会把用户选的出发地当作实测位置。
+行迹是一款轻量级行程位置共享应用。乘坐公共交通时，用户主动开始一段行程，Android 定时保存设备真实位置并上传到自己的服务器。家人打开独立分享链接，即可在浏览器中查看最后一次有效位置和按采集时间排列的轨迹。目的地始终是选填项。应用不计算路线，也不会把用户选的出发地当作实测位置。
+
+Android 安装包与部署源码 ZIP 见 [GitHub Releases](https://github.com/f3ngka0/xingji/releases)。安装后从首页右上角 **⋮ → 服务器地址** 配置自己的服务端。
 
 ## 目录
 
@@ -38,15 +40,25 @@ Android、Web JS、Web 服务的 Key 类型及签名/域名限制不同。本次
 1. 复制 `.env.example` 为 `.env`，设置 `PUBLIC_HOST`、`PUBLIC_BASE_URL=https://你的域名`。运行 `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`，把输出保存为 `SHARE_TOKEN_ENCRYPTION_KEY`；此密钥须长期保留，否则已创建行程的分享链接无法恢复。`.env` 已被 Git 忽略。
 2. 默认地图无需高德 JS Key。如选择高德地图，在控制台为该域名配置 Web JS Key 的域名白名单和安全代理，并填写上述三个高德 JS 环境变量。
 3. 运行 `docker compose up -d --build`。检查 `https://你的域名/healthz`，以及服务容器日志。服务启动时执行数据库迁移。
-4. 在 Android 构建配置中填入同一域名的 API 根地址。只有服务端成功创建行程后，App 才能给出可用的分享链接。
+4. 安装 Release APK，在 App 首页右上角 **⋮ → 服务器地址** 填入同一域名，例如 `https://trip.example.com`，检查连接后保存。无需为了修改地址重新编译 APK。只有服务端成功创建行程后，App 才能给出可用的分享链接。
 
 SQLite 默认保留 90 天数据，可通过 `DATA_RETENTION_DAYS` 调整。`DEFAULT_SHARE_TTL_SECONDS` 是分享链接有效期，`DEFAULT_MAX_SHARE_SECONDS` 是行程最长自动记录时间；两者不等同。定期备份 `trip_data`。换域名时同时更新 `.env` 与高德控制台的域名限制。
+
+### 内网 IP 部署
+
+仅在受信任的局域网或 VPN 中，可使用 HTTP IP 入口。复制 `.env.example` 为 `.env`，配置 `PUBLIC_BASE_URL=http://服务器内网IP:8080` 和实际的 `SHARE_TOKEN_ENCRYPTION_KEY`，然后运行：
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d --build server web
+```
+
+App 的服务器地址填写相同的 `http://服务器内网IP:8080`。此入口同时提供 API、健康检查与 Web 地图；家人也需要能访问该内网或 VPN。端口可通过 `LAN_PORT` 配置。公网部署使用上方的 HTTPS 方案。
 
 ## 本地开发
 
 服务端：在 `server/` 安装依赖，设置本地 `.env` 的 `DB_PATH` 与 `PUBLIC_BASE_URL`，运行开发脚本。网页端默认用 OpenStreetMap，直接运行 Vite；本地开发代理应转发 `/api/` 到服务端。选择高德地图时还应转发 `/_AMapService`。具体命令见各目录的 `package.json`。
 
-Android：安装 JDK 17、Android SDK Platform 36 和 Build Tools 37，设置 `ANDROID_HOME`/`JAVA_HOME` 和 `android/local.properties` 的 `sdk.dir`。App 的目标系统版本仍是 Android 35。在 `android/` 用 Gradle 构建 `assembleDebug`。配置 `TRIP_API_BASE_URL`、`AMAP_WEB_SERVICE_KEY`，如有适用的 Android 定位 Key 再配置 `AMAP_ANDROID_KEY`（Gradle 属性或环境变量）；release 地址必须是 HTTPS。debug 可使用 `http://10.0.2.2:3000/` 访问宿主机服务。release 签名由部署者自备，不在仓库存储。第一次使用需授予前台精确位置权限；Android 13+ 通知权限、Android 14+ 位置前台服务要求也应按系统提示处理。
+Android：安装 JDK 17、Android SDK Platform 36 和 Build Tools 37，设置 `ANDROID_HOME`/`JAVA_HOME` 和 `android/local.properties` 的 `sdk.dir`。App 的目标系统版本仍是 Android 35。在 `android/` 用 Gradle 构建 `assembleDebug`。`TRIP_API_BASE_URL` 可配置默认地址，用户可在 App 中配置地址；公开服务器使用 HTTPS，内网 IP 可使用 HTTP。模拟器可填写 `http://10.0.2.2:3000/` 访问宿主机服务。按需配置 `AMAP_WEB_SERVICE_KEY` 和 `AMAP_ANDROID_KEY`（Gradle 属性或环境变量）。Release 构建与签名方法见 [发布说明](docs/RELEASING.md)。第一次使用需授予前台精确位置权限；Android 13+ 通知权限、Android 14+ 位置前台服务要求也应按系统提示处理。
 
 ## 使用和已知边界
 

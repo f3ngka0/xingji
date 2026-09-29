@@ -9,6 +9,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       proxy: {
+        '/healthz': { target: backend, changeOrigin: true },
         '/api': { target: backend, changeOrigin: true },
         '/_AMapService': { target: backend, changeOrigin: true },
       },

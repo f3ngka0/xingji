@@ -88,6 +88,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -120,7 +121,7 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlin.math.roundToLong
 
-private enum class AppPage { HOME, CREATE, ACTIVE, HISTORY, SETTINGS }
+private enum class AppPage { HOME, CREATE, ACTIVE, HISTORY, SETTINGS, SERVER }
 private enum class PermissionPurpose { NONE, AUTO_ORIGIN, RELOCATE, START, RESUME }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -130,6 +131,10 @@ fun TripShareApp(repository: TripRepository) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     var page by rememberSaveable { mutableStateOf(AppPage.HOME.name) }
+    var configuredServer by remember { mutableStateOf(repository.serverAddress()) }
+    var serverAddressInput by rememberSaveable { mutableStateOf(configuredServer.orEmpty()) }
+    var serverAddressMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    var savingServerAddress by rememberSaveable { mutableStateOf(false) }
     var active by remember { mutableStateOf<LocalTripSummary?>(null) }
     var tripRows by remember { mutableStateOf<List<LocalTripSummary>>(emptyList()) }
     var origin by remember { mutableStateOf<PlaceMarker?>(null) }
@@ -328,9 +333,11 @@ fun TripShareApp(repository: TripRepository) {
         tripRows = repository.allLocalTrips()
         active = repository.activeTrip()
         // A local active trip is shown as recoverable; recording is resumed only after an explicit tap.
-        runCatching { repository.refreshTrips() }.onSuccess { rows ->
-            tripRows = rows
-            active = rows.firstOrNull { it.isActive }
+        if (repository.serverAddress() != null) {
+            runCatching { repository.refreshTrips() }.onSuccess { rows ->
+                tripRows = rows
+                active = rows.firstOrNull { it.isActive }
+            }
         }
     }
 
@@ -340,7 +347,7 @@ fun TripShareApp(repository: TripRepository) {
             TopAppBar(
                 title = {
                     Text(
-                        if (page == AppPage.HOME.name) "同行" else pageTitle(page, settingsTripId, active),
+                        if (page == AppPage.HOME.name) "行迹" else pageTitle(page, settingsTripId, active),
                         fontWeight = FontWeight.SemiBold
                     )
                 },
@@ -354,7 +361,12 @@ fun TripShareApp(repository: TripRepository) {
                     when (page) {
                         AppPage.HOME.name -> HomeOverflowMenu(
                             onSettings = { settingsTripId = null; page = AppPage.SETTINGS.name },
-                            onAbout = { showAbout = true }
+                            onAbout = { showAbout = true },
+                            onServer = {
+                                serverAddressInput = repository.serverAddress().orEmpty()
+                                serverAddressMessage = null
+                                page = AppPage.SERVER.name
+                            }
                         )
                         AppPage.ACTIVE.name -> active?.let { trip ->
                             TripOverflowMenu(
@@ -377,6 +389,12 @@ fun TripShareApp(repository: TripRepository) {
             when (page) {
                 AppPage.HOME.name -> HomePage(
                     active = active,
+                    serverConfigured = configuredServer != null,
+                    onConfigureServer = {
+                        serverAddressInput = repository.serverAddress().orEmpty()
+                        serverAddressMessage = null
+                        page = AppPage.SERVER.name
+                    },
                     onCreate = {
                         if (active?.isActive == true) showMessage("请先结束当前行程，再创建新行程")
                         else {
@@ -480,7 +498,33 @@ fun TripShareApp(repository: TripRepository) {
                         }
                     }
                 )
-                else -> HomePage(active, {}, {}, {})
+                AppPage.SERVER.name -> ServerAddressPage(
+                    currentAddress = configuredServer,
+                    value = serverAddressInput,
+                    busy = savingServerAddress,
+                    message = serverAddressMessage,
+                    onValueChange = { value -> serverAddressInput = value; serverAddressMessage = null },
+                    onSave = {
+                        if (!savingServerAddress) {
+                            savingServerAddress = true
+                            serverAddressMessage = null
+                            scope.launch {
+                                runCatching { repository.configureServerAddress(serverAddressInput) }
+                                    .onSuccess { saved ->
+                                        configuredServer = saved
+                                        serverAddressInput = saved
+                                        page = AppPage.HOME.name
+                                        showMessage("服务器地址已验证并保存")
+                                    }
+                                    .onFailure { error ->
+                                        serverAddressMessage = error.message ?: "服务器地址验证失败，请检查后重试"
+                                    }
+                                savingServerAddress = false
+                            }
+                        }
+                    }
+                )
+                else -> Unit
             }
             if (busy && page != AppPage.CREATE.name) {
                 Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
@@ -498,9 +542,9 @@ fun TripShareApp(repository: TripRepository) {
             text = {
                 Text(
                     if (hasAndroidAmapKey)
-                        "开始行程后，同行会在行程期间使用设备定位并同步位置，供家人通过链接查看；结束后会停止记录。若使用高德地图定位，高德会处理设备位置等必要信息，也可以只使用系统定位。"
+                        "开始行程后，行迹会在行程期间使用设备定位并同步位置，供家人通过链接查看；结束后会停止记录。若使用高德地图定位，高德会处理设备位置等必要信息，也可以只使用系统定位。"
                     else
-                        "开始行程后，同行会在行程期间使用系统定位并同步位置，供家人通过链接查看；结束后会停止记录。"
+                        "开始行程后，行迹会在行程期间使用系统定位并同步位置，供家人通过链接查看；结束后会停止记录。"
                 )
             },
             confirmButton = {
@@ -562,11 +606,11 @@ fun TripShareApp(repository: TripRepository) {
                         val trip = active
                         showEndConfirm = false
                         if (trip != null) {
+                            context.stopService(android.content.Intent(context, TripLocationService::class.java))
                             busy = true
                             scope.launch {
                                 val synced = repository.endTrip(trip.id)
                                 TripSyncWorker.enqueue(context, trip.id)
-                                context.stopService(android.content.Intent(context, TripLocationService::class.java))
                                 active = repository.localTrip(trip.id)
                                 tripRows = repository.allLocalTrips()
                                 busy = false
@@ -607,7 +651,7 @@ fun TripShareApp(repository: TripRepository) {
     if (showAbout) {
         AlertDialog(
             onDismissRequest = { showAbout = false },
-            title = { Text("同行") },
+            title = { Text("行迹") },
             text = { Text("一款为旅途位置分享而设计的轻量工具。只有你主动开始行程后，位置才会分享给家人。") },
             confirmButton = { TextButton(onClick = { showAbout = false }) { Text("知道了") } },
             containerColor = MaterialTheme.colorScheme.surface,
@@ -648,6 +692,8 @@ fun TripShareApp(repository: TripRepository) {
 @Composable
 private fun HomePage(
     active: LocalTripSummary?,
+    serverConfigured: Boolean,
+    onConfigureServer: () -> Unit,
     onCreate: () -> Unit,
     onOpenActive: (LocalTripSummary) -> Unit,
     onHistory: () -> Unit
@@ -668,7 +714,8 @@ private fun HomePage(
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text("开始一次位置共享", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "上车后开始，家人打开链接即可看到你的位置。",
+                    if (serverConfigured) "上车后开始，家人打开链接即可看到你的位置。"
+                    else "首次使用请先设置可访问的服务器地址，再开始行程。",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -684,8 +731,11 @@ private fun HomePage(
         Spacer(Modifier.weight(1.25f))
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             PrimaryButton(
-                text = if (currentTrip == null) "开始共享" else "查看共享中",
-                onClick = { currentTrip?.let(onOpenActive) ?: onCreate() },
+                text = if (!serverConfigured) "设置服务器地址" else if (currentTrip == null) "开始共享" else "查看共享中",
+                onClick = {
+                    if (!serverConfigured) onConfigureServer()
+                    else currentTrip?.let(onOpenActive) ?: onCreate()
+                },
                 enabled = true
             )
             TextButton(onClick = onHistory, modifier = Modifier.fillMaxWidth()) {
@@ -693,6 +743,73 @@ private fun HomePage(
             }
         }
         Spacer(Modifier.height(4.dp))
+    }
+}
+
+@Composable
+private fun ServerAddressPage(
+    currentAddress: String?,
+    value: String,
+    busy: Boolean,
+    message: String?,
+    onValueChange: (String) -> Unit,
+    onSave: () -> Unit
+) {
+    Column(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).imePadding()
+                .padding(horizontal = 24.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text("连接你的服务器", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            Text(
+                "输入服务器域名或 IP 地址。保存前会检查服务器是否可用。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (currentAddress != null) {
+                Text("当前地址：$currentAddress", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                label = { Text("服务器地址") },
+                placeholder = { Text("192.168.1.20:8080 或 trips.example.com") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    capitalization = KeyboardCapitalization.None
+                ),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    focusedBorderColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    focusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    cursorColor = MaterialTheme.colorScheme.onSurface
+                )
+            )
+            Text(
+                "内网 IP、localhost 和模拟器地址可使用 HTTP；HTTP 为明文传输，仅用于可信内网。公网域名或 IP 必须使用 HTTPS。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                "设备已有本地行程时不能切换服务器，以保护已保存的行程和设备凭证。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+            message?.let { Text(it, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium) }
+        }
+        Column(Modifier.navigationBarsPadding().padding(horizontal = 24.dp, vertical = 12.dp)) {
+            PrimaryButton(
+                text = if (busy) "正在检查服务器…" else "验证并保存",
+                onClick = onSave,
+                enabled = !busy && value.isNotBlank()
+            )
+        }
     }
 }
 
@@ -1097,13 +1214,14 @@ private fun SettingsPage(current: LocalTripSummary?, busy: Boolean, onSave: (Tra
 private enum class TripUiState { ACTIVE, STALE, ENDED }
 
 @Composable
-private fun HomeOverflowMenu(onSettings: () -> Unit, onAbout: () -> Unit) {
+private fun HomeOverflowMenu(onSettings: () -> Unit, onAbout: () -> Unit, onServer: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { expanded = true }) { Icon(Icons.Default.MoreVert, contentDescription = "更多") }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text("高级设置") }, leadingIcon = { Icon(Icons.Default.Settings, null) }, onClick = { expanded = false; onSettings() })
-            DropdownMenuItem(text = { Text("关于同行") }, onClick = { expanded = false; onAbout() })
+            DropdownMenuItem(text = { Text("服务器地址") }, onClick = { expanded = false; onServer() })
+            DropdownMenuItem(text = { Text("关于行迹") }, onClick = { expanded = false; onAbout() })
         }
     }
 }
@@ -1324,12 +1442,13 @@ private fun PlaceSearchDialog(repository: TripRepository, onDismiss: () -> Unit,
 }
 
 private fun pageTitle(page: String, settingsTripId: String?, active: LocalTripSummary?): String = when (page) {
-    AppPage.HOME.name -> "同行"
+    AppPage.HOME.name -> "行迹"
     AppPage.CREATE.name -> "创建行程"
     AppPage.ACTIVE.name -> if (active?.isActive == true) "共享中" else "已结束"
     AppPage.HISTORY.name -> "历史行程"
     AppPage.SETTINGS.name -> if (settingsTripId == null) "高级设置" else "行程设置"
-    else -> "同行"
+    AppPage.SERVER.name -> "服务器地址"
+    else -> "行迹"
 }
 
 private fun tripUiState(trip: LocalTripSummary, latestAt: String?, now: Long): TripUiState {

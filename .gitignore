@@ -4,6 +4,8 @@
 !.env.example
 local.properties
 **/local.properties
+**/signing.properties
+**/keystore.properties
 *.keystore
 *.jks
 *.p12

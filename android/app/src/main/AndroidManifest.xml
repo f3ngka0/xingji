@@ -12,10 +12,10 @@
         android:name=".TripShareApplication"
         android:allowBackup="false"
         android:icon="@drawable/ic_app"
-        android:label="行程共享"
+        android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.TripShare"
-        android:usesCleartextTraffic="false">
+        android:usesCleartextTraffic="true">
         <meta-data
             android:name="com.amap.api.v2.apikey"
             android:value="${AMAP_ANDROID_KEY}" />

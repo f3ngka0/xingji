@@ -37,12 +37,25 @@ android {
         manifestPlaceholders["AMAP_ANDROID_KEY"] = configValue("AMAP_ANDROID_KEY", "CHANGE_ME")
     }
 
+    signingConfigs {
+        val releaseStore = configValue("RELEASE_STORE_FILE")
+        if (releaseStore.isNotBlank()) {
+            create("release") {
+                storeFile = file(releaseStore)
+                storePassword = configValue("RELEASE_STORE_PASSWORD")
+                keyAlias = configValue("RELEASE_KEY_ALIAS", "tripshare")
+                keyPassword = configValue("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
         }
         release {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
