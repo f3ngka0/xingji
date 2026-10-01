@@ -17,6 +17,16 @@ enum class TrackingMode(val wireValue: String) {
     }
 }
 
+/** Map family recorded on the trip at creation time; history never follows later setting changes. */
+enum class MapProvider(val wireValue: String) {
+    OSM("OSM"),
+    AMAP("AMAP");
+
+    companion object {
+        fun fromWire(value: String?): MapProvider = entries.firstOrNull { it.wireValue == value } ?: OSM
+    }
+}
+
 data class TripSettings(
     val sampleIntervalSec: Int = 300,
     val uploadIntervalSec: Int = 300,
@@ -49,6 +59,8 @@ data class LocalTripSummary(
     val uploadIntervalSec: Int,
     val mode: TrackingMode,
     val maxShareSeconds: Int,
+    val mapProvider: MapProvider,
+    val latestPositionLabel: String?,
     val shareUrl: String?,
     val shareExpiresAt: String?,
     val latestPositionAt: String?,

@@ -11,13 +11,20 @@ export const placeSchema = z.object({
 const intervalSchema = z.number().int().min(60).max(3600).refine((value) => value % 60 === 0, "Interval must be a whole number of minutes");
 const maxShareSchema = z.number().int().min(60).max(7 * 86400);
 
+export const mapProviderSchema = z.enum(["OSM", "AMAP"]);
+
 export const createTripSchema = z.object({
   origin: placeSchema.nullable().optional(),
   destination: placeSchema.nullable().optional(),
   sampleIntervalSec: intervalSchema.optional(),
   uploadIntervalSec: intervalSchema.optional(),
   mode: z.enum(["standard", "detailed"]).optional(),
-  maxShareSeconds: maxShareSchema.optional()
+  maxShareSeconds: maxShareSchema.optional(),
+  mapProvider: mapProviderSchema.optional()
+}).strict();
+
+export const destinationSchema = z.object({
+  destination: placeSchema.nullable()
 }).strict();
 
 export const settingsSchema = z.object({

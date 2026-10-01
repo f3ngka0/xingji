@@ -38,4 +38,12 @@ export function migrate(db: Database.Database): void {
       db.pragma("user_version = 3");
     })();
   }
+  const versionAfterPlaceLabel = Number(db.pragma("user_version", { simple: true }));
+  if (versionAfterPlaceLabel < 4) {
+    const sql = readFileSync(join(__dirname, "..", "migrations", "004_trip_map_provider.sql"), "utf8");
+    db.transaction(() => {
+      db.exec(sql);
+      db.pragma("user_version = 4");
+    })();
+  }
 }

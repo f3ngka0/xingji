@@ -1,6 +1,7 @@
 import L, { type Layer, type Map as LeafletMap, type LatLngExpression } from 'leaflet';
 import type { Position, PublicTrip, TripUiState } from '../types';
 import { getLongGapThresholdMs, sortPositions } from './geo';
+import { toDisplayCoordinate } from './mapCoordinate';
 
 export interface LeafletDrawResult {
   layers: Layer[];
@@ -19,7 +20,8 @@ function positionTitle(position: Position) {
 
 function addPlaceMarker(map: LeafletMap, layers: Layer[], place: NonNullable<PublicTrip['origin']>, kind: 'origin' | 'destination') {
   const character = kind === 'origin' ? '起' : '终';
-  const marker = L.marker([place.lat, place.lon], {
+  const point = toDisplayCoordinate(place.lat, place.lon, 'osm');
+  const marker = L.marker([point.lat, point.lon], {
     title: place.name,
     icon: L.divIcon({
       className: 'leaflet-place-marker',
@@ -63,7 +65,8 @@ export function drawLeafletTripLayers(
   };
 
   drawable.forEach((point) => {
-    const coordinate: LatLngExpression = [point.lat, point.lon];
+    const display = toDisplayCoordinate(point.lat, point.lon, 'osm');
+    const coordinate: LatLngExpression = [display.lat, display.lon];
     observedPositions.push(coordinate);
     const isCurrent = point.id === currentPositionId;
     const isLive = point.id === livePositionId;
@@ -90,7 +93,8 @@ export function drawLeafletTripLayers(
       const gapMs = Date.parse(point.capturedAt) - Date.parse(previous.capturedAt);
       if (gapMs > getLongGapThresholdMs(trip.sampleIntervalSec)) {
         flushNormalSegment();
-        addPolyline([[previous.lat, previous.lon], coordinate], true);
+        const previousDisplay = toDisplayCoordinate(previous.lat, previous.lon, 'osm');
+        addPolyline([[previousDisplay.lat, previousDisplay.lon], coordinate], true);
         normalSegment = [coordinate];
       } else {
         normalSegment.push(coordinate);

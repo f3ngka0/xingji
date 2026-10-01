@@ -12,7 +12,6 @@ import android.os.SystemClock
 import com.amap.api.location.AMapLocation
 import com.amap.api.location.AMapLocationClient
 import com.amap.api.location.AMapLocationClientOption
-import com.tripshare.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -35,8 +34,10 @@ data class AmapSample(
 
 /** One AMap one-shot request per sampling cycle; no persistent high accuracy request is kept alive. */
 class AmapLocationSampler(private val context: Context) {
+    private val mapConfig = MapConfigStore(context)
+
     suspend fun capture(needAddress: Boolean = false, newerThan: String? = null): AmapSample? {
-        if (hasAmapSdkKey() && AmapConsentStore.isAccepted(context)) {
+        if (mapConfig.amapLocationAvailable() && AmapConsentStore.isAccepted(context)) {
             val amapSample = try {
                 withTimeout(15_000L) { captureAmap(needAddress) }
             } catch (_: TimeoutCancellationException) {
@@ -48,8 +49,6 @@ class AmapLocationSampler(private val context: Context) {
         }
         return AndroidLocationSampler(context).capture(newerThan)
     }
-
-    private fun hasAmapSdkKey() = BuildConfig.AMAP_ANDROID_KEY.isNotBlank() && BuildConfig.AMAP_ANDROID_KEY != "CHANGE_ME"
 
     private suspend fun captureAmap(needAddress: Boolean): AmapSample? = withContext(Dispatchers.Main.immediate) {
         suspendCancellableCoroutine { continuation ->
@@ -68,6 +67,8 @@ class AmapLocationSampler(private val context: Context) {
                 // Consent is recorded by the app only after showing the location/privacy disclosure.
                 AMapLocationClient.updatePrivacyShow(context.applicationContext, true, true)
                 AMapLocationClient.updatePrivacyAgree(context.applicationContext, true)
+                // A key entered at runtime overrides the manifest placeholder.
+                mapConfig.amapLocationKey()?.let { AMapLocationClient.setApiKey(it) }
                 val locationClient = AMapLocationClient(context.applicationContext)
                 client = locationClient
                 val option = AMapLocationClientOption()

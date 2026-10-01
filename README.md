@@ -1,8 +1,8 @@
-# 行迹
+# 同行
 
-行迹是一款轻量级行程位置共享应用。乘坐公共交通时，用户主动开始一段行程，Android 定时保存设备真实位置并上传到自己的服务器。家人打开独立分享链接，即可在浏览器中查看最后一次有效位置和按采集时间排列的轨迹。目的地始终是选填项。应用不计算路线，也不会把用户选的出发地当作实测位置。
+同行是一款轻量级行程位置共享应用。乘坐公共交通时，用户在首页点击一次「开始共享」，App 用首个真实定位点创建行程、启动前台定位记录并生成分享链接；家人打开独立分享链接，即可在浏览器中查看最后一次有效位置和按采集时间排列的轨迹。没有出发地表单：一次行程的起点就是开始后的第一个有效实测位置。目的地始终是选填的附加信息，行程开始后可随时添加、修改或清除，且不影响位置记录。应用不计算路线，也不做轨迹纠偏。
 
-Android 安装包与部署源码 ZIP 见 [GitHub Releases](https://github.com/f3ngka0/xingji/releases)。安装后从首页右上角 **⋮ → 服务器地址** 配置自己的服务端。
+Android 安装包与部署源码 ZIP 见 [GitHub Releases](https://github.com/f3ngka0/xingji/releases)。首次启动没有服务器时 App 直接进入「连接服务器」页；之后可在 **设置 → 服务器** 修改。所有技术参数（服务器、地图服务、记录模式、更新间隔、最长共享时间、权限状态）都集中在设置页。
 
 ## 目录
 
@@ -24,14 +24,14 @@ Android 安装包与部署源码 ZIP 见 [GitHub Releases](https://github.com/f3
 
 ## 地图与高德开放平台配置
 
-Web 地图默认使用 Leaflet 和 OpenStreetMap，不需要地图 Key；Android 未配置高德定位 Key 时使用 Android 系统单次定位。地点搜索仍需要有效的高德 Web 服务 Key。若要启用高德服务，请分别配置相应平台的 Key，切勿把 Key 提交到 Git。
+每个行程在创建时记录 `mapProvider`（`OSM` 或 `AMAP`），Android 内嵌地图与家人打开的 Web 页面都按行程自身的 provider 渲染；之后修改地图服务设置不影响历史行程。坐标体系：存储与传输始终是 WGS-84，展示层由统一的坐标适配器（Web 端 `web/src/lib/mapCoordinate.ts`、Android 接入层 `CoordinateTransform`）完成唯一一次转换——OSM 直接使用 WGS-84，高德展示前转换为 GCJ-02，严禁二次转换。
 
-1. **Android 定位 Key**：在高德控制台创建 Android 应用，填入 release 包名 `com.tripshare.app` 与签名 SHA-1；debug 包名为 `com.tripshare.app.debug`，需要单独配置相应签名或 Key。通过 Android Gradle 属性或环境变量 `AMAP_ANDROID_KEY` 注入。定位 SDK 的 GCJ-02 结果在接入层转换为 WGS-84 才上传。未配置或 Android Key 无法授权时，客户端退回 Android 系统 `LocationManager` 的单次真实定位；其 WGS-84 结果不再转换。
-2. **Web JS API Key（可选）**：创建 Web 端 Key，限制为实际分享域名。构建网页时设置 `AMAP_JS_KEY`。浏览器加载 JS API 时会看见此平台 Key，这是高德 JS API 的正常工作方式，须在控制台绑定域名。
-3. **JS API 安全密钥（可选）**：设置服务端 `AMAP_JS_SECURITY_CODE`，并将 `AMAP_SECURITY_PROXY_ENABLED=true`。网页在加载地图之前设置同源 `/_AMapService` 代理；安全密钥只存在服务端，绝不构建进 JS 资源。两个高德 JS 配置缺任意一项时保持默认 OpenStreetMap 地图。
-4. **Web 服务 API Key**：Android 地点搜索通过高德 Web 服务 inputtips 接口实现，需在 Android 构建时配置 `AMAP_WEB_SERVICE_KEY`。该 Key 会进入 Android 包，应在高德控制台限制可用服务和配额；不应当作 JS API 安全密钥。客户端所选地点坐标在接入层转换为 WGS-84。服务端也可独立配置同名环境变量，用于限频逆地理编码：优先返回最近地名、相对方位与距离，无合适地点则返回区域名；分享令牌不会传给高德。此配置可留空，此时网页使用中性位置说明。
-
-Android、Web JS、Web 服务的 Key 类型及签名/域名限制不同。本次所给 Key 已确认可用于高德 Web 服务地点搜索和逆地理编码；无法仅凭 Key 字符串确认它可用于 Android SDK 或 Web JS API，因此模拟器联调使用系统定位后备，网页默认使用 OpenStreetMap。
+- **基础模式（默认，OpenStreetMap）**：无需任何 Key。Web 使用 Leaflet 渲染 OSM 数据瓦片（默认镜像源为社区 `tile.openstreetmap.de`，中国大陆网络通常比 `tile.openstreetmap.org` 更可达；也可在 `web/src/components/TripMap.tsx` 换成自建瓦片）。基础模式不提供 POI 搜索与目的地设置。
+- **增强模式（高德地图）**：在 App **设置 → 地图服务** 中选择增强模式并填写两个 Key（保存进设备加密存储，不进 Git、不进日志）：
+  1. **高德 Android Key**：定位 SDK 使用。填入 release 包名 `com.tripshare.app` 与签名 SHA-1；debug 包名为 `com.tripshare.app.debug`。运行时输入的 Key 会覆盖构建期 `AMAP_ANDROID_KEY`（Gradle 属性或环境变量注入的旧方式仍作为兜底）。定位 SDK 的 GCJ-02 结果在接入层转换为 WGS-84 才上传；Key 不可用时退回系统 `LocationManager` 的 WGS-84 单次定位。
+  2. **高德 Web 服务 Key**：行程中的 POI 搜索（inputtips）。服务端同名环境变量 `AMAP_WEB_SERVICE_KEY` 用于限频逆地理编码，为最近位置点解析「地名 + 方位 + 距离」标签；留空时 UI 显示中性的「当前位置」。
+- 两个 Key 均完整时增强模式才生效（显示「高德服务已配置」），否则显示「配置尚未完成」并自动保持基础模式。
+- **Web 高德底图（可选，独立于 App 配置）**：要让家人端 AMAP 行程渲染高德地图，部署侧需设置 Web JS 的 `AMAP_JS_KEY`、服务端 `AMAP_JS_SECURITY_CODE` 并开启 `AMAP_SECURITY_PROXY_ENABLED=true`（安全密钥只存在服务端）。若部署未配置，AMAP 行程在 Web 自动回退到开源地图并给出轻提示——WGS-84 在 OSM 上仍然正确，只是没有高德底图语义。
 
 ## 个人服务器或 NAS 部署
 
@@ -40,7 +40,7 @@ Android、Web JS、Web 服务的 Key 类型及签名/域名限制不同。本次
 1. 复制 `.env.example` 为 `.env`，设置 `PUBLIC_HOST`、`PUBLIC_BASE_URL=https://你的域名`。运行 `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`，把输出保存为 `SHARE_TOKEN_ENCRYPTION_KEY`；此密钥须长期保留，否则已创建行程的分享链接无法恢复。`.env` 已被 Git 忽略。
 2. 默认地图无需高德 JS Key。如选择高德地图，在控制台为该域名配置 Web JS Key 的域名白名单和安全代理，并填写上述三个高德 JS 环境变量。
 3. 运行 `docker compose up -d --build`。检查 `https://你的域名/healthz`，以及服务容器日志。服务启动时执行数据库迁移。
-4. 安装 Release APK，在 App 首页右上角 **⋮ → 服务器地址** 填入同一域名，例如 `https://trip.example.com`，检查连接后保存。无需为了修改地址重新编译 APK。只有服务端成功创建行程后，App 才能给出可用的分享链接。
+4. 安装 Release APK，首次启动直接进入「连接服务器」页，填入同一域名，例如 `https://trip.example.com`，验证成功后进入首页；之后可在 **设置 → 服务器** 修改。无需为了修改地址重新编译 APK。只有服务端成功创建行程后，App 才能给出可用的分享链接。
 
 SQLite 默认保留 90 天数据，可通过 `DATA_RETENTION_DAYS` 调整。`DEFAULT_SHARE_TTL_SECONDS` 是分享链接有效期，`DEFAULT_MAX_SHARE_SECONDS` 是行程最长自动记录时间；两者不等同。定期备份 `trip_data`。换域名时同时更新 `.env` 与高德控制台的域名限制。
 
@@ -62,7 +62,7 @@ Android：安装 JDK 17、Android SDK Platform 36 和 Build Tools 37，设置 `A
 
 ## 使用和已知边界
 
-打开 App 创建行程时，会尝试用当前位置填入出发地；用户手动选定后不会被后续自动结果覆盖。目的地留空也能开始、分享、结束、查看历史和删除。标准模式按选定间隔采样；详细模式提高采样频率并批量上传。锁屏后依靠 Android 位置前台服务继续执行；系统 Doze、厂商省电策略、权限被撤销或强行终止应用均可能延迟或停止定位，不能保证严格的秒级定时。重新打开 App 后可识别仍在进行的行程并继续记录。分享页显示的是最后一次**实测**位置和时间，长时间未更新时不推测当前位置。
+首页显示「定位已就绪 / 正在获取当前位置 / 暂时无法获取位置」和真实逆地理地名（系统 Geocoder 或高德定位附带的地点名；拿不到地名时只显示「当前位置已获取」，绝不伪造）。点击「开始共享」一步创建行程：捕获首个有效定位 → 服务端建行程（记录 mapProvider）→ 写入首点 → 启动前台服务 → 进入共享中页。行程标题自动为「从某地出发」，基础模式没有目的地入口；增强模式可在共享中页右上角 ⋮ 添加、修改或清除目的地。标准模式按选定间隔采样；详细模式提高采样频率并批量上传。设置页的默认值只影响以后新行程；进行中的行程可在共享中页 ⋮ 的「行程设置」单独调整。锁屏后依靠 Android 位置前台服务继续执行；系统 Doze、厂商省电策略、权限被撤销或强行终止应用均可能延迟或停止定位，不能保证严格的秒级定时。重新打开 App 后可识别仍在进行的行程并继续记录。分享页显示的是最后一次**实测**位置和时间，长时间未更新时不推测当前位置。
 
 本项目没有账号恢复机制。如果卸载 App 或丢失本地设备凭证，不能凭分享链接取得管理权限。分享链接是持有即访问，请只发给信任的人；需要停止访问时在 App 内撤销分享或删除行程。
 

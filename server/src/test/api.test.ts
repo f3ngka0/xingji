@@ -93,7 +93,7 @@ test("trip creation accepts absent or explicit-null destination and keeps marker
   const absent = await createTrip(ctx, { origin: { name: "梧州南站", lat: 23.43, lon: 111.25 } });
   assert.equal(absent.response.status, 201);
   assert.equal(absent.body.trip.destination, null);
-  assert.equal(absent.body.trip.title, "从梧州南站出发的行程");
+  assert.equal(absent.body.trip.title, "从梧州南站出发");
   const token = new URL(absent.body.shareUrl).pathname.split("/").at(-1)!;
   const publicTrip = await json(ctx, `/api/v1/public/trips/${token}`, { headers: { authorization: `Bearer ${ctx.credential}` } });
   assert.equal(publicTrip.response.status, 200);
@@ -145,6 +145,59 @@ test("supports a destination and validates detailed collection settings", async 
   assert.equal(detailDefaults.response.status, 201);
   assert.equal(detailDefaults.body.trip.sampleIntervalSec, 60);
   await json(ctx, `/api/v1/trips/${detailDefaults.body.trip.id}/end`, { method: "POST", headers: management(ctx) });
+});
+
+test("map provider is stored per trip, defaults to OSM, and survives on history", async () => {
+  const ended = await json(ctx, `/api/v1/trips`, { headers: management(ctx) });
+  const active = ended.body.trips.find((trip: any) => trip.status === "active");
+  if (active) await json(ctx, `/api/v1/trips/${active.id}/end`, { method: "POST", headers: management(ctx) });
+  const osmTrip = await createTrip(ctx);
+  assert.equal(osmTrip.response.status, 201);
+  assert.equal(osmTrip.body.trip.mapProvider, "OSM");
+  await json(ctx, `/api/v1/trips/${osmTrip.body.trip.id}/end`, { method: "POST", headers: management(ctx) });
+  const amapTrip = await createTrip(ctx, { origin: { name: "合浦县", lat: 21.66, lon: 109.2 }, mapProvider: "AMAP" });
+  assert.equal(amapTrip.response.status, 201);
+  assert.equal(amapTrip.body.trip.mapProvider, "AMAP");
+  const invalid = await createTrip(ctx, { mapProvider: "GOOGLE" });
+  assert.equal(invalid.response.status, 400);
+  const list = await json(ctx, "/api/v1/trips", { headers: management(ctx) });
+  const byId = new Map(list.body.trips.map((trip: any) => [trip.id, trip.mapProvider]));
+  assert.equal(byId.get(osmTrip.body.trip.id), "OSM");
+  assert.equal(byId.get(amapTrip.body.trip.id), "AMAP");
+  await json(ctx, `/api/v1/trips/${amapTrip.body.trip.id}/end`, { method: "POST", headers: management(ctx) });
+});
+
+test("destination can be added, changed, and cleared after a trip starts", async () => {
+  const created = await createTrip(ctx, { origin: { name: "合浦县", lat: 21.66, lon: 109.2 } });
+  assert.equal(created.response.status, 201);
+  const tripId = created.body.trip.id as string;
+  const added = await json(ctx, `/api/v1/trips/${tripId}/destination`, {
+    method: "PATCH", headers: management(ctx),
+    body: JSON.stringify({ destination: { name: "北海站", lat: 21.48, lon: 109.12 } })
+  });
+  assert.equal(added.response.status, 200);
+  assert.equal(added.body.trip.title, "合浦县 → 北海站");
+  assert.equal(added.body.trip.destination.name, "北海站");
+  const changed = await json(ctx, `/api/v1/trips/${tripId}/destination`, {
+    method: "PATCH", headers: management(ctx),
+    body: JSON.stringify({ destination: { name: "南宁东站", lat: 22.77, lon: 108.45 } })
+  });
+  assert.equal(changed.body.trip.title, "合浦县 → 南宁东站");
+  const cleared = await json(ctx, `/api/v1/trips/${tripId}/destination`, {
+    method: "PATCH", headers: management(ctx), body: JSON.stringify({ destination: null })
+  });
+  assert.equal(cleared.response.status, 200);
+  assert.equal(cleared.body.trip.destination, null);
+  assert.equal(cleared.body.trip.title, "从合浦县出发");
+  const bad = await json(ctx, `/api/v1/trips/${tripId}/destination`, {
+    method: "PATCH", headers: management(ctx), body: JSON.stringify({ destination: { name: "", lat: 1, lon: 1 } })
+  });
+  assert.equal(bad.response.status, 400);
+  await json(ctx, `/api/v1/trips/${tripId}/end`, { method: "POST", headers: management(ctx) });
+  const afterEnd = await json(ctx, `/api/v1/trips/${tripId}/destination`, {
+    method: "PATCH", headers: management(ctx), body: JSON.stringify({ destination: null })
+  });
+  assert.equal(afterEnd.response.status, 409);
 });
 
 test("position upload is idempotent, validates each point, orders by captured time, and permits offline sync after end", async () => {

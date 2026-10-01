@@ -39,6 +39,7 @@ export interface TripRow {
   upload_interval_sec: number;
   mode: "standard" | "detailed";
   max_share_seconds: number;
+  map_provider: "OSM" | "AMAP";
   share_expires_at: string;
   share_revoked_at: string | null;
   share_token_ciphertext: string | null;
@@ -85,11 +86,19 @@ export function tripToApi(db: Database.Database, row: TripRow) {
     uploadIntervalSec: row.upload_interval_sec,
     mode: row.mode,
     maxShareSeconds: row.max_share_seconds,
+    mapProvider: row.map_provider,
     shareExpiresAt: row.share_expires_at,
     latestPositionAt: stats.latest,
+    latestPositionLabel: latestPositionLabel(db, row.id),
     pointCount: pointCount.count,
     shareRevokedAt: row.share_revoked_at
   };
+}
+
+function latestPositionLabel(db: Database.Database, tripId: string): string | null {
+  const row = db.prepare(`SELECT place_label FROM positions WHERE trip_id = ? AND is_outlier = 0
+    AND place_label IS NOT NULL ORDER BY captured_at DESC, id DESC LIMIT 1`).get(tripId) as { place_label: string | null } | undefined;
+  return row?.place_label ?? null;
 }
 
 export function publicPosition(row: PositionRow) {
@@ -123,6 +132,7 @@ export function publicTrip(db: Database.Database, row: TripRow) {
     sampleIntervalSec: trip.sampleIntervalSec,
     uploadIntervalSec: trip.uploadIntervalSec,
     mode: trip.mode,
+    mapProvider: row.map_provider,
     latestPositionAt: trip.latestPositionAt,
     latestPositionLabel: latest?.place_label ?? null,
     pointCount: trip.pointCount,

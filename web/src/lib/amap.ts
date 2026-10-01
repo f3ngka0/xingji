@@ -1,5 +1,6 @@
 import type { Position, PublicTrip, TripUiState } from '../types';
-import { getLongGapThresholdMs, sortPositions, wgs84ToGcj02 } from './geo';
+import { getLongGapThresholdMs, sortPositions } from './geo';
+import { toDisplayCoordinate } from './mapCoordinate';
 
 export type LngLat = [number, number];
 
@@ -132,9 +133,9 @@ export function drawTripOverlays(
   const drawable = sorted.filter((point) => !point.isOutlier);
 
   const addPlaceMarker = (place: NonNullable<PublicTrip['origin']>, kind: 'origin' | 'destination') => {
-    const position = wgs84ToGcj02(place.lon, place.lat);
+    const place2 = toDisplayCoordinate(place.lat, place.lon, 'amap');
     overlays.push(new amap.Marker({
-      position,
+      position: [place2.lon, place2.lat],
       title: place.name,
       offset: new amap.Pixel(-12, -28),
       content: `<div class="map-pin map-pin-${kind}"><span></span></div>`,
@@ -161,7 +162,8 @@ export function drawTripOverlays(
   };
 
   drawable.forEach((point) => {
-    const converted = wgs84ToGcj02(point.lon, point.lat);
+    const convertedRaw = toDisplayCoordinate(point.lat, point.lon, 'amap');
+    const converted: LngLat = [convertedRaw.lon, convertedRaw.lat];
     const isCurrent = point.id === currentPositionId;
     const marker = new amap.Marker({
       position: converted,
@@ -177,9 +179,9 @@ export function drawTripOverlays(
       const gapMs = Date.parse(point.capturedAt) - Date.parse(previous.capturedAt);
       if (gapMs > getLongGapThresholdMs(trip.sampleIntervalSec)) {
         flushNormalSegment();
-        const previousCoord = wgs84ToGcj02(previous.lon, previous.lat);
+        const previousRaw = toDisplayCoordinate(previous.lat, previous.lon, 'amap');
         overlays.push(new amap.Polyline({
-          path: [previousCoord, converted],
+          path: [[previousRaw.lon, previousRaw.lat], converted],
           strokeColor: '#8b8d89',
           strokeWeight: 3,
           strokeOpacity: 0.8,

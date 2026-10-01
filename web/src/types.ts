@@ -21,6 +21,8 @@ export const PositionSchema = z.object({
   coordinateSystem: z.literal('WGS84'),
 });
 
+export const MapProviderSchema = z.enum(['OSM', 'AMAP']);
+
 export const PublicTripSchema = z.object({
   title: z.string(),
   origin: PlaceSchema.nullable(),
@@ -31,6 +33,7 @@ export const PublicTripSchema = z.object({
   sampleIntervalSec: z.number().int().positive(),
   uploadIntervalSec: z.number().int().positive(),
   mode: z.enum(['standard', 'detailed']),
+  mapProvider: MapProviderSchema.optional(),
   latestPositionAt: z.string().datetime({ offset: true }).nullable(),
   latestPositionLabel: z.string().trim().min(1).nullable().optional(),
   pointCount: z.number().int().nonnegative(),
@@ -48,4 +51,5 @@ export type Place = z.infer<typeof PlaceSchema>;
 export type Position = z.infer<typeof PositionSchema>;
 export type PublicTrip = z.infer<typeof PublicTripSchema>;
 export type PositionsResponse = z.infer<typeof PositionsResponseSchema>;
+export type MapProviderValue = z.infer<typeof MapProviderSchema>;
 export type TripUiState = 'ACTIVE' | 'STALE' | 'ENDED';

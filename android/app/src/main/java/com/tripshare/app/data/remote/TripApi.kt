@@ -35,7 +35,8 @@ data class CreateTripRequest(
     val sampleIntervalSec: Int,
     val uploadIntervalSec: Int,
     val mode: String,
-    val maxShareSeconds: Int
+    val maxShareSeconds: Int,
+    val mapProvider: String = "OSM"
 )
 data class SettingsRequest(
     val sampleIntervalSec: Int,
@@ -43,6 +44,7 @@ data class SettingsRequest(
     val mode: String,
     val maxShareSeconds: Int
 )
+data class DestinationRequest(val destination: MarkerDto?)
 data class TripDto(
     val id: String,
     val title: String,
@@ -56,9 +58,11 @@ data class TripDto(
     val uploadIntervalSec: Int,
     val mode: String,
     val maxShareSeconds: Int,
+    val mapProvider: String? = "OSM",
     val shareUrl: String?,
     val shareExpiresAt: String?,
     val latestPositionAt: String?,
+    val latestPositionLabel: String? = null,
     val pointCount: Int,
     val shareRevokedAt: String?
 )
@@ -99,6 +103,9 @@ interface TripApi {
 
     @PATCH("api/v1/trips/{id}/settings")
     suspend fun updateSettings(@Path("id") id: String, @Body body: SettingsRequest): TripResponse
+
+    @PATCH("api/v1/trips/{id}/destination")
+    suspend fun updateDestination(@Path("id") id: String, @Body body: DestinationRequest): TripResponse
 
     @POST("api/v1/trips/{id}/end")
     suspend fun endTrip(@Path("id") id: String): TripResponse
@@ -220,11 +227,17 @@ class TripApiFactory(context: Context, private val credentialStore: CredentialSt
         check(currentServerAddress() != null) { "请先在主页更多菜单中设置服务器地址" }
     }
 
-    fun amapSearchConfigured() = BuildConfig.AMAP_WEB_SERVICE_KEY.isNotBlank() && BuildConfig.AMAP_WEB_SERVICE_KEY != "CHANGE_ME"
+    fun amapSearchConfigured() = resolveAmapWebServiceKey() != null
+
+    private fun resolveAmapWebServiceKey(): String? {
+        val stored = com.tripshare.app.location.MapConfigStore(appContext).amapWebServiceKey()
+        if (!stored.isNullOrBlank()) return stored
+        return BuildConfig.AMAP_WEB_SERVICE_KEY.takeIf { it.isNotBlank() && it != "CHANGE_ME" }
+    }
 
     suspend fun searchPlaces(query: String): List<com.tripshare.app.location.AmapPlace> {
-        if (!amapSearchConfigured()) throw IllegalStateException("请配置高德 Web 服务 Key 后使用地点搜索")
-        val response = amapWebApi().inputTips(query, BuildConfig.AMAP_WEB_SERVICE_KEY)
+        val key = resolveAmapWebServiceKey() ?: throw IllegalStateException("请先在地图服务设置中配置高德 Web 服务 Key")
+        val response = amapWebApi().inputTips(query.trim(), key)
         if (response.status != "1") throw IllegalStateException("高德地点搜索暂不可用")
         return response.tips.orEmpty().mapNotNull { com.tripshare.app.location.AmapPlace.fromTip(it) }
     }

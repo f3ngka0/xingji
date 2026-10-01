@@ -7,7 +7,7 @@ function NotFoundPage() {
   return (
     <main className="message-page">
       <section className="message-card">
-        <span className="eyebrow">行迹</span>
+        <span className="eyebrow">同行</span>
         <h1>页面不存在</h1>
         <p>请检查分享链接是否完整。</p>
       </section>

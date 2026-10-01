@@ -5,7 +5,7 @@ import type Database from "better-sqlite3";
 import { z } from "zod";
 import type { AppConfig } from "./config";
 import { closeExpiredTrips, decryptSecret, encryptSecret, markOutliers, newSecret, newUuid, nowIso, publicPosition, publicTrip, sha256, tripToApi, type TripRow } from "./domain";
-import { pointErrorCode, pointInputSchema, createTripSchema, settingsSchema, uuidSchema } from "./validation";
+import { pointErrorCode, pointInputSchema, createTripSchema, destinationSchema, settingsSchema, uuidSchema } from "./validation";
 import { scheduleLatestPlaceLabel } from "./geocode";
 
 const error = (res: Response, status: number, code: string, message: string) =>
@@ -147,6 +147,7 @@ export function createApp(db: Database.Database, config: AppConfig): express.Exp
     const sampleIntervalSec = parsed.data.sampleIntervalSec ?? (mode === "detailed" ? 60 : config.defaultSampleIntervalSec);
     const uploadIntervalSec = parsed.data.uploadIntervalSec ?? sampleIntervalSec;
     const maxShareSeconds = parsed.data.maxShareSeconds ?? config.defaultMaxShareSeconds;
+    const mapProvider = parsed.data.mapProvider ?? "OSM";
     const settingsError = validateSettings(sampleIntervalSec, uploadIntervalSec, mode, maxShareSeconds);
     if (settingsError) return error(res, 400, "INVALID_SETTINGS", settingsError);
     const active = db.prepare("SELECT id FROM trips WHERE device_id = ? AND status = 'active'")
@@ -157,21 +158,19 @@ export function createApp(db: Database.Database, config: AppConfig): express.Exp
     const shareExpiresAt = new Date(Date.now() + config.defaultShareTtlSeconds * 1000).toISOString();
     const token = newSecret();
     const tripId = newUuid();
-    const title = origin && destination
-      ? `${origin.name} → ${destination.name}`
-      : origin ? `从${origin.name}出发的行程` : "我的位置共享";
+    const title = tripTitle(origin, destination);
     try {
       db.prepare(`INSERT INTO trips (
         id, device_id, title, origin_name, origin_lat, origin_lon,
         destination_name, destination_lat, destination_lon, status, started_at,
-        sample_interval_sec, upload_interval_sec, mode, max_share_seconds,
+        sample_interval_sec, upload_interval_sec, mode, max_share_seconds, map_provider,
         share_token_hash, share_expires_at, share_token_ciphertext
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)`)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(
           tripId, res.locals.deviceId as string, title,
           origin?.name ?? null, origin?.lat ?? null, origin?.lon ?? null,
           destination?.name ?? null, destination?.lat ?? null, destination?.lon ?? null,
-          startedAt, sampleIntervalSec, uploadIntervalSec, mode, maxShareSeconds, sha256(token), shareExpiresAt,
+          startedAt, sampleIntervalSec, uploadIntervalSec, mode, maxShareSeconds, mapProvider, sha256(token), shareExpiresAt,
           encryptSecret(token, config.shareTokenEncryptionKey)
         );
     } catch {
@@ -217,6 +216,25 @@ export function createApp(db: Database.Database, config: AppConfig): express.Exp
     db.prepare(`UPDATE trips SET sample_interval_sec = ?, upload_interval_sec = ?, mode = ?, max_share_seconds = ?
       WHERE id = ?`).run(values.sample, values.upload, values.mode, values.max, row.id);
     closeExpiredTrips(db);
+    const updated = db.prepare("SELECT * FROM trips WHERE id = ?").get(row.id) as Parameters<typeof tripToApi>[1];
+    res.json({ trip: managementTripToApi(db, updated, config) });
+  });
+
+  app.patch("/api/v1/trips/:id/destination", requireDevice, (req, res) => {
+    const id = routeParam(req, "id");
+    if (!uuidSchema.safeParse(id).success) return error(res, 404, "NOT_FOUND", "未找到此行程。" );
+    const parsed = destinationSchema.safeParse(req.body);
+    if (!parsed.success) return error(res, 400, "INVALID_REQUEST", "目的地参数无效。" );
+    const row = getOwnedTrip(db, id, res.locals.deviceId as string);
+    if (!row) return error(res, 404, "NOT_FOUND", "未找到此行程。" );
+    if (row.status !== "active") return error(res, 409, "TRIP_ENDED", "已结束的行程不能修改目的地。" );
+    const destination = parsed.data.destination;
+    const origin = row.origin_name === null ? null : { name: row.origin_name, lat: row.origin_lat!, lon: row.origin_lon! };
+    db.prepare(`UPDATE trips SET destination_name = ?, destination_lat = ?, destination_lon = ?, title = ? WHERE id = ?`)
+      .run(
+        destination?.name ?? null, destination?.lat ?? null, destination?.lon ?? null,
+        tripTitle(origin, destination), row.id
+      );
     const updated = db.prepare("SELECT * FROM trips WHERE id = ?").get(row.id) as Parameters<typeof tripToApi>[1];
     res.json({ trip: managementTripToApi(db, updated, config) });
   });
@@ -405,8 +423,14 @@ function managementTripToApi(db: Database.Database, row: TripRow, config: AppCon
   return trip;
 }
 
-function validateSettings(sample: number, upload: number, mode: string, maxShareSeconds: number): string | null {
-  if (!Number.isInteger(sample) || sample < 60 || sample > 3600 || sample % 60 !== 0) {
+function tripTitle(origin: { name: string } | null, destination: { name: string } | null): string {
+  if (origin && destination) return `${origin.name} → ${destination.name}`;
+  if (origin) return `从${origin.name}出发`;
+  if (destination) return `前往${destination.name}`;
+  return "我的位置共享";
+}
+
+function validateSettings(sample: number, upload: number, mode: string, maxShareSeconds: number): string | null {  if (!Number.isInteger(sample) || sample < 60 || sample > 3600 || sample % 60 !== 0) {
     return "采样间隔须为 1 到 60 分钟之间的任意整分钟。";
   }
   if (!Number.isInteger(upload) || upload < 60 || upload > 3600 || upload % 60 !== 0) {

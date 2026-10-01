@@ -35,6 +35,8 @@ data class TripEntity(
     val uploadIntervalSec: Int,
     val mode: String,
     val maxShareSeconds: Int,
+    val mapProvider: String = "OSM",
+    val latestPositionLabel: String? = null,
     val shareExpiresAt: String?,
     val latestPositionAt: String?,
     val shareRevokedAt: String?
@@ -151,7 +153,7 @@ interface TripDao {
     }
 }
 
-@Database(entities = [TripEntity::class, PositionEntity::class], version = 1, exportSchema = true)
+@Database(entities = [TripEntity::class, PositionEntity::class], version = 2, exportSchema = true)
 abstract class TripDatabase : RoomDatabase() {
     abstract fun tripDao(): TripDao
 
@@ -159,7 +161,16 @@ abstract class TripDatabase : RoomDatabase() {
         @Volatile private var instance: TripDatabase? = null
         fun get(context: Context): TripDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, TripDatabase::class.java, "trip-share.db")
+                .addMigrations(MIGRATION_1_2)
                 .build().also { instance = it }
+        }
+
+        /** Trips created before map providers existed always render as OSM (WGS-84 tiles). */
+        private val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE trips ADD COLUMN mapProvider TEXT NOT NULL DEFAULT 'OSM'")
+                db.execSQL("ALTER TABLE trips ADD COLUMN latestPositionLabel TEXT")
+            }
         }
     }
 }

@@ -3,9 +3,10 @@ import L, { type Layer, type Map as LeafletMap } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { MapPin, RefreshCw } from 'lucide-react';
 import { drawTripOverlays, loadAMap, type AMapInstance, type AMapOverlay } from '../lib/amap';
-import { fitLeafletToObservedPositions, drawLeafletTripLayers } from '../lib/leaflet';
-import { wgs84ToGcj02 } from '../lib/geo';
-import { getPreferredMapProvider, type MapProvider } from '../lib/mapProvider';
+import { drawLeafletTripLayers, fitLeafletToObservedPositions } from '../lib/leaflet';
+import { toDisplayCoordinate, type MapProviderName } from '../lib/mapCoordinate';
+import { providerForTrip, providerFallsBackToOsm } from '../lib/mapProvider';
+import { webAmapConfigured } from '../lib/mapEnv';
 import type { Position, PublicTrip, TripUiState } from '../types';
 
 interface TripMapProps {
@@ -19,7 +20,7 @@ interface TripMapProps {
   onRetry: () => void;
 }
 
-type LoadedMapProvider = MapProvider | 'loading';
+type LoadedMapProvider = MapProviderName | 'loading';
 
 export function TripMap({ token, trip, positions, currentPositionId, livePositionId, positionState, loading, onRetry }: TripMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -34,14 +35,16 @@ export function TripMap({ token, trip, positions, currentPositionId, livePositio
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
   const [mapAttempt, setMapAttempt] = useState(0);
 
+  // The trip renders with the provider recorded when it was created, so the
+  // owner's app and this page always agree on the map semantics.
+  const requestedProvider = providerForTrip(trip.mapProvider, webAmapConfigured());
+  const fallsBackToOsm = providerFallsBackToOsm(trip.mapProvider, webAmapConfigured());
+
   useEffect(() => {
     let active = true;
     const origin = trip.origin;
     const latestPosition = trip.latestPosition;
     const focus = latestPosition ?? origin;
-    const amapKey = import.meta.env.VITE_AMAP_JS_KEY?.trim();
-    const securityProxyReady = import.meta.env.VITE_AMAP_SECURITY_PROXY_ENABLED === 'true';
-    const preferredProvider = getPreferredMapProvider(amapKey, securityProxyReady);
     setMapLoaded(false);
     setMapProvider('loading');
     setMapError(null);
@@ -50,8 +53,11 @@ export function TripMap({ token, trip, positions, currentPositionId, livePositio
       try {
         if (!active || !containerRef.current || leafletMapRef.current) return;
         const map = L.map(containerRef.current, { zoomControl: false, attributionControl: true, preferCanvas: true });
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        // Community OSM tile mirror: reachable from mainland-family networks where
+        // tile.openstreetmap.org is not; same OSM data and WGS-84 datum.
+        L.tileLayer('https://{s}.tile.openstreetmap.de/{z}/{x}/{y}.png', {
           maxZoom: 19,
+          subdomains: 'abc',
           attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         }).addTo(map);
         if (focus) map.setView([focus.lat, focus.lon], latestPosition ? 14 : 12);
@@ -65,19 +71,19 @@ export function TripMap({ token, trip, positions, currentPositionId, livePositio
       }
     };
 
-    if (preferredProvider === 'osm') {
+    if (requestedProvider === 'osm') {
       createOpenMap(null);
     } else {
       void loadAMap()
         .then((amap) => {
           if (!active || !containerRef.current || amapMapRef.current) return;
           const center = focus
-            ? wgs84ToGcj02(focus.lon, focus.lat)
-            : [104.1954, 35.8617] as [number, number];
+            ? toDisplayCoordinate(focus.lat, focus.lon, 'amap')
+            : { lat: 35.8617, lon: 104.1954 };
           amapMapRef.current = new amap.Map(containerRef.current, {
             viewMode: '2D',
             zoom: focus ? 12 : 4,
-            center,
+            center: [center.lon, center.lat],
             resizeEnable: true,
           });
           setMapProvider('amap');
@@ -102,7 +108,7 @@ export function TripMap({ token, trip, positions, currentPositionId, livePositio
       leafletMapRef.current = null;
     };
     // Each share token owns one map instance; trip data changes redraw overlays below.
-  }, [token, mapAttempt]);
+  }, [token, mapAttempt, requestedProvider]);
 
   useEffect(() => {
     if (!mapLoaded) return;
@@ -116,10 +122,12 @@ export function TripMap({ token, trip, positions, currentPositionId, livePositio
       if (drawn.observedMarkers.length > 0) {
         amapMapRef.current.setFitView(drawn.observedMarkers, false, [64, 48, 104, 48]);
       } else if (trip.latestPosition) {
-        amapMapRef.current.setCenter(wgs84ToGcj02(trip.latestPosition.lon, trip.latestPosition.lat));
+        const center = toDisplayCoordinate(trip.latestPosition.lat, trip.latestPosition.lon, 'amap');
+        amapMapRef.current.setCenter([center.lon, center.lat]);
         amapMapRef.current.setZoom(15);
       } else if (trip.origin) {
-        amapMapRef.current.setCenter(wgs84ToGcj02(trip.origin.lon, trip.origin.lat));
+        const center = toDisplayCoordinate(trip.origin.lat, trip.origin.lon, 'amap');
+        amapMapRef.current.setCenter([center.lon, center.lat]);
         amapMapRef.current.setZoom(13);
       }
     } else if (mapProvider === 'osm' && leafletMapRef.current) {
@@ -163,6 +171,9 @@ export function TripMap({ token, trip, positions, currentPositionId, livePositio
         </div>
       ) : null}
       {mapNotice && mapLoaded && <div className="map-provider-note">{mapNotice}</div>}
+      {!mapNotice && fallsBackToOsm && mapLoaded && mapProvider === 'osm' && (
+        <div className="map-provider-note">此行程使用高德地图，当前部署未配置高德底图，已用开源地图显示。</div>
+      )}
       {infoPosition && (
         <div className="map-point-hint" role="status">
           <strong>位置记录</strong>

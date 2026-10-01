@@ -5,6 +5,7 @@ import com.tripshare.app.data.local.PositionEntity
 import com.tripshare.app.data.local.TripDatabase
 import com.tripshare.app.data.local.TripEntity
 import com.tripshare.app.data.remote.CreateTripRequest
+import com.tripshare.app.data.remote.DestinationRequest
 import com.tripshare.app.data.remote.DeviceRegistrationRequest
 import com.tripshare.app.data.remote.PositionInputDto
 import com.tripshare.app.data.remote.TripApiFactory
@@ -58,7 +59,12 @@ class TripRepository(context: Context) {
     suspend fun activeTrip(): LocalTripSummary? = dao.activeTrip()?.toSummary()
     suspend fun allLocalTrips(): List<LocalTripSummary> = dao.allTrips().map { it.toSummary() }
 
-    suspend fun createTrip(origin: PlaceMarker?, destination: PlaceMarker?, settings: TripSettings): LocalTripSummary = serverOperationMutex.withLock {
+    suspend fun createTrip(
+        origin: PlaceMarker?,
+        destination: PlaceMarker?,
+        settings: TripSettings,
+        mapProvider: MapProvider = MapProvider.OSM
+    ): LocalTripSummary = serverOperationMutex.withLock {
         require(settings.sampleIntervalSec in MIN_INTERVAL..MAX_INTERVAL) { "位置间隔需在 1 分钟到 1 小时之间" }
         require(settings.uploadIntervalSec in MIN_INTERVAL..MAX_INTERVAL) { "上传间隔需在 1 分钟到 1 小时之间" }
         require(settings.maxShareSeconds in MIN_SHARE_SECONDS..MAX_SHARE_SECONDS) { "共享时长设置无效" }
@@ -71,7 +77,8 @@ class TripRepository(context: Context) {
                 sampleIntervalSec = sampleSeconds,
                 uploadIntervalSec = settings.uploadIntervalSec,
                 mode = settings.mode.wireValue,
-                maxShareSeconds = settings.maxShareSeconds
+                maxShareSeconds = settings.maxShareSeconds,
+                mapProvider = mapProvider.wireValue
             )
         )
         val shareUrl = response.shareUrl ?: response.trip.shareUrl
@@ -79,6 +86,15 @@ class TripRepository(context: Context) {
             credentials.saveShareUrl(response.trip.id, shareUrl)
         }
         val entity = response.trip.toEntity()
+        dao.putTrip(entity)
+        entity.toSummary()
+    }
+
+    /** Destinations are optional extra info on a running trip; they never affect position recording. */
+    suspend fun updateDestination(tripId: String, destination: PlaceMarker?): LocalTripSummary = serverOperationMutex.withLock {
+        val updated = authenticatedApi().updateDestination(tripId, DestinationRequest(destination?.toDto())).trip
+        cacheShareUrl(updated.id, updated.shareUrl, updated.shareExpiresAt, updated.shareRevokedAt)
+        val entity = updated.toEntity()
         dao.putTrip(entity)
         entity.toSummary()
     }
@@ -250,6 +266,8 @@ class TripRepository(context: Context) {
         uploadIntervalSec = uploadIntervalSec,
         mode = mode,
         maxShareSeconds = maxShareSeconds,
+        mapProvider = MapProvider.fromWire(mapProvider).wireValue,
+        latestPositionLabel = latestPositionLabel,
         shareExpiresAt = shareExpiresAt,
         latestPositionAt = latestPositionAt,
         shareRevokedAt = shareRevokedAt
@@ -260,6 +278,8 @@ class TripRepository(context: Context) {
         if (originName != null && originLat != null && originLon != null) PlaceMarker(originName, originLat, originLon) else null,
         if (destinationName != null && destinationLat != null && destinationLon != null) PlaceMarker(destinationName, destinationLat, destinationLon) else null,
         status, startedAt, endedAt, sampleIntervalSec, uploadIntervalSec, TrackingMode.fromWire(mode), maxShareSeconds,
+        MapProvider.fromWire(mapProvider),
+        latestPositionLabel,
         credentials.shareUrl(id)?.takeIf(apiFactory::isSafeShareUrl), shareExpiresAt, latestPositionAt, shareRevokedAt
     )
 
