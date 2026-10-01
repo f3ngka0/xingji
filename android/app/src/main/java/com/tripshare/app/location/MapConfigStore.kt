@@ -16,8 +16,7 @@ enum class MapConfigState { READY, NOT_CONFIGURED, INVALID }
 object MapProviderSettings {
     fun configState(androidKey: String?, webServiceKey: String?): MapConfigState = when {
         androidKey.isNullOrBlank() && webServiceKey.isNullOrBlank() -> MapConfigState.NOT_CONFIGURED
-        !androidKey.isNullOrBlank() && !webServiceKey.isNullOrBlank() -> MapConfigState.READY
-        else -> MapConfigState.INVALID
+        else -> MapConfigState.READY
     }
 
     fun resolve(selected: com.tripshare.app.data.MapProvider, state: MapConfigState, builtInAmapAvailable: Boolean): com.tripshare.app.data.MapProvider =
@@ -67,14 +66,21 @@ class MapConfigStore(context: Context) {
     fun amapWebServiceKey(): String? =
         runCatching { securePrefs.getString(KEY_WEB_SERVICE, null) }.getOrNull()?.takeIf { it.isNotBlank() }
 
-    fun saveAmapKeys(androidKey: String, webServiceKey: String) {
-        val committed = runCatching {
-            securePrefs.edit()
-                .putString(KEY_ANDROID, androidKey.trim())
-                .putString(KEY_WEB_SERVICE, webServiceKey.trim())
-                .commit()
-        }.getOrDefault(false)
-        check(committed) { "高德配置保存失败，请重试" }
+    /** Persists only the provided keys, so either credential can be filled alone. */
+    fun saveAmapKeys(androidKey: String?, webServiceKey: String?) {
+        val editor = securePrefs.edit()
+        var changed = false
+        if (!androidKey.isNullOrBlank()) {
+            editor.putString(KEY_ANDROID, androidKey.trim())
+            changed = true
+        }
+        if (!webServiceKey.isNullOrBlank()) {
+            editor.putString(KEY_WEB_SERVICE, webServiceKey.trim())
+            changed = true
+        }
+        if (changed) {
+            check(editor.commit()) { "高德配置保存失败，请重试" }
+        }
     }
 
     fun amapConfigState(): MapConfigState = MapProviderSettings.configState(amapAndroidKey(), amapWebServiceKey())

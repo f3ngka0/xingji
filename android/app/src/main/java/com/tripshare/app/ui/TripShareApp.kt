@@ -978,11 +978,12 @@ private fun LocationStatusCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(8.dp).clip(CircleShape).background(when (locationState) {
                     LocationState.AVAILABLE -> Color(SUCCESS_GREEN)
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 }))
+                Spacer(Modifier.width(8.dp))
                 Text(
                     when (locationState) {
                         LocationState.AVAILABLE -> "定位已就绪"
@@ -992,6 +993,14 @@ private fun LocationStatusCard(
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium
                 )
+                Spacer(Modifier.weight(1f))
+                if (locationState == LocationState.AVAILABLE && fix != null) {
+                    Text(
+                        locationAgeLabel(fix.resolvedAtMillis, now),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Icon(
@@ -1009,26 +1018,14 @@ private fun LocationStatusCard(
                     maxLines = 2
                 )
             }
-            if (locationState != LocationState.LOCATING) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    if (locationState == LocationState.UNAVAILABLE) {
-                        TextButton(
-                            onClick = onRelocate,
-                            contentPadding = PaddingValues(horizontal = 8.dp)
-                        ) {
-                            Icon(Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface)
-                            Spacer(Modifier.width(8.dp))
-                            Text("重新定位", color = MaterialTheme.colorScheme.onSurface)
-                        }
-                    }
-                    Spacer(Modifier.weight(1f))
-                    if (locationState == LocationState.AVAILABLE && fix != null) {
-                        Text(
-                            locationAgeLabel(fix.resolvedAtMillis, now),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
+            if (locationState == LocationState.UNAVAILABLE) {
+                TextButton(
+                    onClick = onRelocate,
+                    contentPadding = PaddingValues(horizontal = 8.dp)
+                ) {
+                    Icon(Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface)
+                    Spacer(Modifier.width(8.dp))
+                    Text("重新定位", color = MaterialTheme.colorScheme.onSurface)
                 }
             }
         }
@@ -1211,12 +1208,18 @@ private fun MapServicePage(store: MapConfigStore, version: Int, onSaved: () -> U
                                 onValueChange = { webKey = it; error = null },
                                 onToggleVisible = { showWebKey = !showWebKey }
                             )
-                            val state = MapProviderSettings.configState(androidKey, webKey)
+                            val androidReady = androidKey.isNotBlank()
+                            val webReady = webKey.isNotBlank()
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Box(Modifier.size(8.dp).clip(CircleShape).background(if (state == MapConfigState.READY) Color(SUCCESS_GREEN) else MaterialTheme.colorScheme.onSurfaceVariant))
+                                Box(Modifier.size(8.dp).clip(CircleShape).background(if (androidReady || webReady) Color(SUCCESS_GREEN) else MaterialTheme.colorScheme.onSurfaceVariant))
                                 Text(
-                                    if (state == MapConfigState.READY) "高德服务已配置" else "配置尚未完成",
-                                    color = if (state == MapConfigState.READY) Color(SUCCESS_GREEN) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    when {
+                                        androidReady && webReady -> "高德服务已配置"
+                                        androidReady -> "已配置定位与地点名称；POI 搜索可再填 Web 服务 Key"
+                                        webReady -> "已配置 POI 搜索；地点名称可再填 Android Key"
+                                        else -> "配置尚未完成"
+                                    },
+                                    color = if (androidReady || webReady) Color(SUCCESS_GREEN) else MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                             }
@@ -1237,9 +1240,7 @@ private fun MapServicePage(store: MapConfigStore, version: Int, onSaved: () -> U
                     scope.launch {
                         try {
                             withContext(Dispatchers.IO) {
-                                if (androidKey.isNotBlank() && webKey.isNotBlank()) {
-                                    store.saveAmapKeys(androidKey, webKey)
-                                }
+                                store.saveAmapKeys(androidKey, webKey)
                                 store.saveSelectedProvider(selected)
                             }
                             error = null

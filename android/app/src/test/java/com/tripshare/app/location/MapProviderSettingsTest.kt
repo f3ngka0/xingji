@@ -7,18 +7,22 @@ import org.junit.Test
 class MapProviderSettingsTest {
 
     @Test
-    fun `enhanced mode only takes effect when both keys are present`() {
-        val state = MapProviderSettings.configState("android-key", "web-key")
-        assertEquals(MapConfigState.READY, state)
-        assertEquals(MapProvider.AMAP, MapProviderSettings.resolve(MapProvider.AMAP, state, builtInAmapAvailable = false))
+    fun `either key alone is enough for enhanced mode`() {
+        val both = MapProviderSettings.configState("android-key", "web-key")
+        assertEquals(MapConfigState.READY, both)
+        val androidOnly = MapProviderSettings.configState("android-key", null)
+        assertEquals(MapConfigState.READY, androidOnly)
+        val webOnly = MapProviderSettings.configState(null, "web-key")
+        assertEquals(MapConfigState.READY, webOnly)
+        assertEquals(MapProvider.AMAP, MapProviderSettings.resolve(MapProvider.AMAP, androidOnly, builtInAmapAvailable = false))
+        assertEquals(MapProvider.AMAP, MapProviderSettings.resolve(MapProvider.AMAP, webOnly, builtInAmapAvailable = false))
     }
 
     @Test
-    fun `incomplete or missing keys fall back to OSM`() {
-        assertEquals(MapConfigState.INVALID, MapProviderSettings.configState("android-key", null))
-        assertEquals(MapConfigState.INVALID, MapProviderSettings.configState("", "web-key"))
+    fun `missing keys fall back to OSM`() {
         assertEquals(MapConfigState.NOT_CONFIGURED, MapProviderSettings.configState(null, null))
         val blankState = MapProviderSettings.configState("  ", "")
+        assertEquals(MapConfigState.NOT_CONFIGURED, blankState)
         assertEquals(MapProvider.OSM, MapProviderSettings.resolve(MapProvider.AMAP, blankState, builtInAmapAvailable = false))
     }
 

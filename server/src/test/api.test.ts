@@ -115,9 +115,9 @@ test("trip creation accepts absent or explicit-null destination and keeps marker
 test("nearby place labels show measured direction and distance, then fall back to an area", () => {
   const place = labelFromRegeo(0.0028, -0.0028, {
     status: "1",
-    regeocode: { pois: [{ name: "南宁东站", location: "0,0" }] }
+    regeocode: { pois: [{ name: "城东站", location: "0,0" }] }
   });
-  assert.match(place ?? "", /^南宁东站西北 \d+ 米$/);
+  assert.match(place ?? "", /^城东站西北 \d+ 米$/);
   const area = labelFromRegeo(23.4, 111.2, {
     status: "1",
     regeocode: { pois: [], addressComponent: { township: "龙圩镇" } }
@@ -132,14 +132,14 @@ test("supports a destination and validates detailed collection settings", async 
   await json(ctx, `/api/v1/trips/${active.id}/end`, { method: "POST", headers: management(ctx) });
   const created = await createTrip(ctx, {
     origin: { name: "南宁站", lat: 22.82, lon: 108.32 },
-    destination: { name: "北海站", lat: 21.48, lon: 109.12 },
+    destination: { name: "滨江站", lat: 23.38, lon: 111.26 },
     sampleIntervalSec: 60,
     uploadIntervalSec: 300,
     mode: "detailed"
   });
   assert.equal(created.response.status, 201);
-  assert.equal(created.body.trip.destination.name, "北海站");
-  assert.equal(created.body.trip.title, "南宁站 → 北海站");
+  assert.equal(created.body.trip.destination.name, "滨江站");
+  assert.equal(created.body.trip.title, "南宁站 → 滨江站");
   await json(ctx, `/api/v1/trips/${created.body.trip.id}/end`, { method: "POST", headers: management(ctx) });
   const detailDefaults = await createTrip(ctx, { mode: "detailed" });
   assert.equal(detailDefaults.response.status, 201);
@@ -155,7 +155,7 @@ test("map provider is stored per trip, defaults to OSM, and survives on history"
   assert.equal(osmTrip.response.status, 201);
   assert.equal(osmTrip.body.trip.mapProvider, "OSM");
   await json(ctx, `/api/v1/trips/${osmTrip.body.trip.id}/end`, { method: "POST", headers: management(ctx) });
-  const amapTrip = await createTrip(ctx, { origin: { name: "合浦县", lat: 21.66, lon: 109.2 }, mapProvider: "AMAP" });
+  const amapTrip = await createTrip(ctx, { origin: { name: "临江镇", lat: 23.40, lon: 111.24 }, mapProvider: "AMAP" });
   assert.equal(amapTrip.response.status, 201);
   assert.equal(amapTrip.body.trip.mapProvider, "AMAP");
   const invalid = await createTrip(ctx, { mapProvider: "GOOGLE" });
@@ -168,27 +168,27 @@ test("map provider is stored per trip, defaults to OSM, and survives on history"
 });
 
 test("destination can be added, changed, and cleared after a trip starts", async () => {
-  const created = await createTrip(ctx, { origin: { name: "合浦县", lat: 21.66, lon: 109.2 } });
+  const created = await createTrip(ctx, { origin: { name: "临江镇", lat: 23.40, lon: 111.24 } });
   assert.equal(created.response.status, 201);
   const tripId = created.body.trip.id as string;
   const added = await json(ctx, `/api/v1/trips/${tripId}/destination`, {
     method: "PATCH", headers: management(ctx),
-    body: JSON.stringify({ destination: { name: "北海站", lat: 21.48, lon: 109.12 } })
+    body: JSON.stringify({ destination: { name: "滨江站", lat: 23.38, lon: 111.26 } })
   });
   assert.equal(added.response.status, 200);
-  assert.equal(added.body.trip.title, "合浦县 → 北海站");
-  assert.equal(added.body.trip.destination.name, "北海站");
+  assert.equal(added.body.trip.title, "临江镇 → 滨江站");
+  assert.equal(added.body.trip.destination.name, "滨江站");
   const changed = await json(ctx, `/api/v1/trips/${tripId}/destination`, {
     method: "PATCH", headers: management(ctx),
-    body: JSON.stringify({ destination: { name: "南宁东站", lat: 22.77, lon: 108.45 } })
+    body: JSON.stringify({ destination: { name: "城东站", lat: 23.42, lon: 111.22 } })
   });
-  assert.equal(changed.body.trip.title, "合浦县 → 南宁东站");
+  assert.equal(changed.body.trip.title, "临江镇 → 城东站");
   const cleared = await json(ctx, `/api/v1/trips/${tripId}/destination`, {
     method: "PATCH", headers: management(ctx), body: JSON.stringify({ destination: null })
   });
   assert.equal(cleared.response.status, 200);
   assert.equal(cleared.body.trip.destination, null);
-  assert.equal(cleared.body.trip.title, "从合浦县出发");
+  assert.equal(cleared.body.trip.title, "从临江镇出发");
   const bad = await json(ctx, `/api/v1/trips/${tripId}/destination`, {
     method: "PATCH", headers: management(ctx), body: JSON.stringify({ destination: { name: "", lat: 1, lon: 1 } })
   });
