@@ -12,8 +12,17 @@ import android.provider.Settings
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -21,6 +30,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -287,12 +297,12 @@ fun TripShareApp(repository: TripRepository) {
             page = AppPage.ACTIVE.name
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Exception) {
+        } catch (error: Exception) {
             created?.let { trip ->
                 runCatching { repository.endTrip(trip.id) }
                 TripSyncWorker.enqueue(context, trip.id)
             }
-            showMessage("暂时无法开始行程，请检查网络与服务器后重试。")
+            showMessage(startFailureMessage(error))
         } finally {
             busy = false
         }
@@ -373,6 +383,17 @@ fun TripShareApp(repository: TripRepository) {
         page = AppPage.SERVER.name
     }
 
+    // System back mirrors the top-bar back arrow instead of leaving the app.
+    val goBack: () -> Unit = {
+        when (page) {
+            AppPage.MAP_SERVICE.name -> page = AppPage.SETTINGS.name
+            AppPage.TRIP_SETTINGS.name -> page = AppPage.ACTIVE.name
+            AppPage.SERVER.name -> page = serverSource
+            else -> page = AppPage.HOME.name
+        }
+    }
+    BackHandler(enabled = !firstRun && page != AppPage.HOME.name) { goBack() }
+
     // First launch: explain location use once, then locate for the home card.
     LaunchedEffect(firstRun, consentAccepted) {
         if (!firstRun && !consentAccepted && !locationAttempted) {
@@ -412,19 +433,14 @@ fun TripShareApp(repository: TripRepository) {
             TopAppBar(
                 title = {
                     Text(
-                        if (effectivePage == AppPage.HOME.name) "同行" else pageTitle(effectivePage, settingsTripId, active, firstRun),
+                        if (effectivePage == AppPage.HOME.name) "行迹" else pageTitle(effectivePage, settingsTripId, active, firstRun),
                         fontWeight = FontWeight.SemiBold
                     )
                 },
                 navigationIcon = {
-                    if (!firstRun && effectivePage != AppPage.HOME.name) IconButton(onClick = {
-                        when (effectivePage) {
-                            AppPage.MAP_SERVICE.name -> page = AppPage.SETTINGS.name
-                            AppPage.TRIP_SETTINGS.name -> page = AppPage.ACTIVE.name
-                            AppPage.SERVER.name -> page = serverSource
-                            else -> page = AppPage.HOME.name
-                        }
-                    }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") }
+                    if (!firstRun && effectivePage != AppPage.HOME.name) IconButton(onClick = { goBack() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
                 },
                 actions = {
                     when (effectivePage) {
@@ -492,127 +508,144 @@ fun TripShareApp(repository: TripRepository) {
                     }
                 )
             } else {
-                when (page) {
-                    AppPage.HOME.name -> HomePage(
-                        locationState = LocationState.valueOf(homeLocationState),
-                        fix = homeFix,
-                        activeTrip = active?.takeIf { it.isActive },
-                        onStart = {
-                            if (active?.isActive == true) page = AppPage.ACTIVE.name else requestStart()
-                        },
-                        onRelocate = {
-                            if (!consentAccepted) {
-                                showConsent = true
-                                pendingAfterConsent = PendingAfterConsent.LOCATE.name
-                            } else {
-                                homeFix = null
-                                homeLocationState = LocationState.LOCATING.name
-                                requestLocation(PermissionPurpose.HOME_LOCATE)
-                            }
-                        },
-                        onOpenCurrentOnMap = { if (homeFix != null) page = AppPage.LOCATE_MAP.name },
-                        onHistory = { page = AppPage.HISTORY.name }
-                    )
-                    AppPage.ACTIVE.name -> active?.let { trip ->
-                        ActiveTripPage(
-                            trip = trip,
-                            repository = repository,
-                            onEnd = { showEndConfirm = true },
-                            onCopy = { link -> copyText(context, "行程分享链接", link) }
-                        )
-                    } ?: EmptyState("没有进行中的行程")
-                    AppPage.HISTORY.name -> HistoryPage(
-                        trips = tripRows,
-                        onOpen = { trip -> active = trip; page = AppPage.ACTIVE.name }
-                    )
-                    AppPage.SETTINGS.name -> SettingsHubPage(
-                        selectedMode = TrackingMode.valueOf(mode),
-                        intervalMinutes = interval,
-                        maxShareSeconds = maxShare,
-                        mapProvider = mapProvider,
-                        amapReady = mapProvider == MapProvider.AMAP,
-                        serverConnected = configuredServer != null,
-                        locationGranted = hasLocationPermission(),
-                        onServer = { openServerPage(AppPage.SETTINGS) },
-                        onMapService = { page = AppPage.MAP_SERVICE.name },
-                        onRecordMode = { showRecordModeSheet = true },
-                        onInterval = { showIntervalSheet = true },
-                        onMaxShare = { showMaxShareSheet = true },
-                        onPermissions = { showPermissionSheet = true },
-                        onAbout = { showAbout = true }
-                    )
-                    AppPage.MAP_SERVICE.name -> MapServicePage(
-                        store = mapConfig,
-                        version = mapServiceVersion,
-                        onSaved = {
-                            mapProvider = mapConfig.selectedProvider()
-                            mapServiceVersion += 1
-                            page = AppPage.SETTINGS.name
-                            showMessage("地图服务设置已保存")
+                AnimatedContent(
+                    targetState = page,
+                    transitionSpec = {
+                        val forward = (pageDepth(targetState)) >= (pageDepth(initialState))
+                        if (forward) {
+                            (slideInHorizontally(tween(220, easing = FastOutSlowInEasing)) { it / 10 } + fadeIn(tween(220))) togetherWith
+                                (slideOutHorizontally(tween(220, easing = FastOutSlowInEasing)) { -it / 10 } + fadeOut(tween(220)))
+                        } else {
+                            (slideInHorizontally(tween(220, easing = FastOutSlowInEasing)) { -it / 10 } + fadeIn(tween(220))) togetherWith
+                                (slideOutHorizontally(tween(220, easing = FastOutSlowInEasing)) { it / 10 } + fadeOut(tween(220)))
                         }
-                    )
-                    AppPage.TRIP_SETTINGS.name -> TripSettingsPage(
-                        current = settingsTripId?.let { tripId -> tripRows.firstOrNull { it.id == tripId } ?: active?.takeIf { it.id == tripId } },
-                        busy = busy,
-                        onSave = { selectedMode, selectedInterval, selectedMax ->
-                            val chosen = selectedInterval.coerceIn(60, 3_600)
-                            val settings = TripSettings(
-                                if (selectedMode == TrackingMode.DETAILED) 60 else chosen,
-                                chosen,
-                                selectedMode,
-                                selectedMax
+                    },
+                    label = "pageTransition"
+                ) { currentPage ->
+                    Box(Modifier.fillMaxSize()) {
+                        when (currentPage) {
+                            AppPage.HOME.name -> HomePage(
+                                locationState = LocationState.valueOf(homeLocationState),
+                                fix = homeFix,
+                                activeTrip = active?.takeIf { it.isActive },
+                                onStart = {
+                                    if (active?.isActive == true) page = AppPage.ACTIVE.name else requestStart()
+                                },
+                                onRelocate = {
+                                    if (!consentAccepted) {
+                                        showConsent = true
+                                        pendingAfterConsent = PendingAfterConsent.LOCATE.name
+                                    } else {
+                                        homeFix = null
+                                        homeLocationState = LocationState.LOCATING.name
+                                        requestLocation(PermissionPurpose.HOME_LOCATE)
+                                    }
+                                },
+                                onOpenCurrentOnMap = { if (homeFix != null) page = AppPage.LOCATE_MAP.name },
+                                onHistory = { page = AppPage.HISTORY.name }
                             )
-                            busy = true
-                            scope.launch {
-                                val targetId = settingsTripId
-                                if (targetId == null) {
-                                    saveDefaultSettings(selectedMode, chosen, selectedMax)
-                                    busy = false
-                                    page = AppPage.HOME.name
-                                    showMessage("默认设置已保存")
-                                } else {
-                                    runCatching { repository.updateSettings(targetId, settings) }
-                                        .onSuccess { updated ->
-                                            active = updated
-                                            tripRows = repository.allLocalTrips()
-                                            TripLocationService.settingsUpdated(context, targetId)
-                                            page = AppPage.ACTIVE.name
-                                            showMessage("行程设置已更新")
-                                        }.onFailure { showMessage(it.message ?: "设置更新失败，请检查网络") }
-                                    busy = false
+                            AppPage.ACTIVE.name -> active?.let { trip ->
+                                ActiveTripPage(
+                                    trip = trip,
+                                    repository = repository,
+                                    onEnd = { showEndConfirm = true },
+                                    onCopy = { link -> copyText(context, "行程分享链接", link) }
+                                )
+                            } ?: EmptyState("没有进行中的行程")
+                            AppPage.HISTORY.name -> HistoryPage(
+                                trips = tripRows,
+                                onOpen = { trip -> active = trip; page = AppPage.ACTIVE.name }
+                            )
+                            AppPage.SETTINGS.name -> SettingsHubPage(
+                                selectedMode = TrackingMode.valueOf(mode),
+                                intervalMinutes = interval / 60,
+                                maxShareSeconds = maxShare,
+                                mapProvider = mapProvider,
+                                amapReady = mapProvider == MapProvider.AMAP,
+                                serverConnected = configuredServer != null,
+                                locationGranted = hasLocationPermission(),
+                                onServer = { openServerPage(AppPage.SETTINGS) },
+                                onMapService = { page = AppPage.MAP_SERVICE.name },
+                                onRecordMode = { showRecordModeSheet = true },
+                                onInterval = { showIntervalSheet = true },
+                                onMaxShare = { showMaxShareSheet = true },
+                                onPermissions = { showPermissionSheet = true },
+                                onAbout = { showAbout = true }
+                            )
+                            AppPage.MAP_SERVICE.name -> MapServicePage(
+                                store = mapConfig,
+                                version = mapServiceVersion,
+                                onSaved = {
+                                    mapProvider = mapConfig.selectedProvider()
+                                    mapServiceVersion += 1
+                                    page = AppPage.SETTINGS.name
+                                    showMessage("地图服务设置已保存")
                                 }
-                            }
-                        }
-                    )
-                    AppPage.SERVER.name -> ServerAddressPage(
-                        firstRun = false,
-                        currentAddress = configuredServer,
-                        value = serverAddressInput,
-                        busy = savingServerAddress,
-                        message = serverAddressMessage,
-                        onValueChange = { value -> serverAddressInput = value; serverAddressMessage = null },
-                        onSave = {
-                            if (!savingServerAddress) {
-                                savingServerAddress = true
-                                serverAddressMessage = null
-                                scope.launch {
-                                    runCatching { repository.configureServerAddress(serverAddressInput) }
-                                        .onSuccess { saved ->
-                                            configuredServer = saved
-                                            serverAddressInput = saved
-                                            page = serverSource
-                                            showMessage("服务器已连接")
+                            )
+                            AppPage.TRIP_SETTINGS.name -> TripSettingsPage(
+                                current = settingsTripId?.let { tripId -> tripRows.firstOrNull { it.id == tripId } ?: active?.takeIf { it.id == tripId } },
+                                busy = busy,
+                                onSave = { selectedMode, selectedInterval, selectedMax ->
+                                    val chosen = selectedInterval.coerceIn(60, 3_600)
+                                    val settings = TripSettings(
+                                        if (selectedMode == TrackingMode.DETAILED) 60 else chosen,
+                                        chosen,
+                                        selectedMode,
+                                        selectedMax
+                                    )
+                                    busy = true
+                                    scope.launch {
+                                        val targetId = settingsTripId
+                                        if (targetId == null) {
+                                            saveDefaultSettings(selectedMode, chosen, selectedMax)
+                                            busy = false
+                                            page = AppPage.HOME.name
+                                            showMessage("默认设置已保存")
+                                        } else {
+                                            runCatching { repository.updateSettings(targetId, settings) }
+                                                .onSuccess { updated ->
+                                                    active = updated
+                                                    tripRows = repository.allLocalTrips()
+                                                    TripLocationService.settingsUpdated(context, targetId)
+                                                    page = AppPage.ACTIVE.name
+                                                    showMessage("行程设置已更新")
+                                                }.onFailure { showMessage(it.message ?: "设置更新失败，请检查网络") }
+                                            busy = false
                                         }
-                                        .onFailure { error ->
-                                            serverAddressMessage = error.message ?: "无法连接，请检查服务器地址"
-                                        }
-                                    savingServerAddress = false
+                                    }
                                 }
-                            }
+                            )
+                            AppPage.SERVER.name -> ServerAddressPage(
+                                firstRun = false,
+                                currentAddress = configuredServer,
+                                value = serverAddressInput,
+                                busy = savingServerAddress,
+                                message = serverAddressMessage,
+                                onValueChange = { value -> serverAddressInput = value; serverAddressMessage = null },
+                                onSave = {
+                                    if (!savingServerAddress) {
+                                        savingServerAddress = true
+                                        serverAddressMessage = null
+                                        scope.launch {
+                                            runCatching { repository.configureServerAddress(serverAddressInput) }
+                                                .onSuccess { saved ->
+                                                    configuredServer = saved
+                                                    serverAddressInput = saved
+                                                    page = serverSource
+                                                    showMessage("服务器已连接")
+                                                }
+                                                .onFailure { error ->
+                                                    serverAddressMessage = error.message ?: "无法连接，请检查服务器地址"
+                                                }
+                                            savingServerAddress = false
+                                        }
+                                    }
+                                }
+                            )
+                            AppPage.LOCATE_MAP.name -> CurrentLocationMapPage(fix = homeFix)
+                            else -> Unit
                         }
-                    )
-                    AppPage.LOCATE_MAP.name -> CurrentLocationMapPage(fix = homeFix)
-                    else -> Unit
+                    }
                 }
             }
             if (busy && effectivePage != AppPage.TRIP_SETTINGS.name) {
@@ -634,9 +667,9 @@ fun TripShareApp(repository: TripRepository) {
             text = {
                 Text(
                     if (amapLocationAvailable)
-                        "开始行程后，同行会在行程期间使用设备定位并同步位置，供家人通过链接查看；结束后会停止记录。若使用高德地图定位，高德会处理设备位置等必要信息，也可以只使用系统定位。"
+                        "开始行程后，行迹会在行程期间使用设备定位并同步位置，供家人通过链接查看；结束后会停止记录。若使用高德地图定位，高德会处理设备位置等必要信息，也可以只使用系统定位。"
                     else
-                        "开始行程后，同行会在行程期间使用系统定位并同步位置，供家人通过链接查看；结束后会停止记录。"
+                        "开始行程后，行迹会在行程期间使用系统定位并同步位置，供家人通过链接查看；结束后会停止记录。"
                 )
             },
             confirmButton = {
@@ -833,7 +866,7 @@ fun TripShareApp(repository: TripRepository) {
     if (showAbout) {
         AlertDialog(
             onDismissRequest = { showAbout = false },
-            title = { Text("关于同行") },
+            title = { Text("关于行迹") },
             text = { Text("一款为旅途位置分享而设计的轻量工具。只有你主动开始行程后，位置才会分享给家人。") },
             confirmButton = { TextButton(onClick = { showAbout = false }) { Text("知道了") } },
             containerColor = MaterialTheme.colorScheme.surface,
@@ -960,7 +993,6 @@ private fun LocationStatusCard(
                     fontWeight = FontWeight.Medium
                 )
             }
-            Text("当前位置", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Icon(
                     Icons.Default.LocationOn, contentDescription = null,
@@ -977,18 +1009,53 @@ private fun LocationStatusCard(
                     maxLines = 2
                 )
             }
-            if (locationState == LocationState.AVAILABLE && fix != null) {
-                Text(locationAgeLabel(fix.resolvedAtMillis, now), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-            }
-            if (locationState == LocationState.UNAVAILABLE) {
-                TextButton(onClick = onRelocate) {
-                    Icon(Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface)
-                    Spacer(Modifier.width(8.dp))
-                    Text("重新定位", color = MaterialTheme.colorScheme.onSurface)
+            if (locationState != LocationState.LOCATING) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    if (locationState == LocationState.UNAVAILABLE) {
+                        TextButton(
+                            onClick = onRelocate,
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) {
+                            Icon(Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface)
+                            Spacer(Modifier.width(8.dp))
+                            Text("重新定位", color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    if (locationState == LocationState.AVAILABLE && fix != null) {
+                        Text(
+                            locationAgeLabel(fix.resolvedAtMillis, now),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+private fun pageDepth(pageName: String): Int = when (pageName) {
+    AppPage.ACTIVE.name, AppPage.HISTORY.name, AppPage.SETTINGS.name, AppPage.LOCATE_MAP.name -> 1
+    AppPage.SERVER.name, AppPage.MAP_SERVICE.name, AppPage.TRIP_SETTINGS.name -> 2
+    else -> 0
+}
+
+/** Surface the real cause of a failed start: server reply, network, or local error. */
+private fun startFailureMessage(error: Exception): String = when (error) {
+    is retrofit2.HttpException -> {
+        val detail = runCatching {
+            val body = error.response()?.errorBody()?.string() ?: return@runCatching null
+            val payload = com.google.gson.JsonParser.parseString(body)
+            payload.asJsonObject?.get("error")?.asJsonObject?.get("message")?.asString
+        }.getOrNull()
+        when {
+            detail != null -> "无法开始行程：$detail"
+            else -> "无法开始行程（服务器返回 ${error.code()}）"
+        }
+    }
+    is java.io.IOException -> "暂时无法连接服务器，请检查网络后重试"
+    else -> "暂时无法开始行程：${error.message ?: error.javaClass.simpleName}"
 }
 
 private fun locationAgeLabel(resolvedAtMillis: Long, now: Long): String {
@@ -1012,8 +1079,10 @@ private fun ServerAddressPage(
                 .padding(horizontal = 24.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(if (firstRun) "连接服务器" else "服务器", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             Text("连接你的位置共享服务", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!firstRun) {
+                Text("服务器", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            }
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.surface,
@@ -1708,7 +1777,7 @@ private fun SettingsHubPage(
         SettingsCard {
             SettingsRow("权限状态", if (locationGranted) "定位已开启" else "未开启", onClick = onPermissions)
             SettingsDivider()
-            SettingsRow("关于同行", "", onClick = onAbout)
+            SettingsRow("关于行迹", "", onClick = onAbout)
         }
         Spacer(Modifier.height(12.dp))
     }
@@ -2012,7 +2081,7 @@ private fun TripSettingsPage(current: LocalTripSummary?, busy: Boolean, onSave: 
 private enum class TripUiState { ACTIVE, STALE, ENDED }
 
 private fun pageTitle(page: String, settingsTripId: String?, active: LocalTripSummary?, firstRun: Boolean): String = when (page) {
-    AppPage.HOME.name -> "同行"
+    AppPage.HOME.name -> "行迹"
     AppPage.ACTIVE.name -> if (active?.isActive == true) "共享中" else "已结束"
     AppPage.HISTORY.name -> "历史行程"
     AppPage.SETTINGS.name -> if (settingsTripId == null) "设置" else "行程设置"
@@ -2020,7 +2089,7 @@ private fun pageTitle(page: String, settingsTripId: String?, active: LocalTripSu
     AppPage.MAP_SERVICE.name -> "地图服务"
     AppPage.TRIP_SETTINGS.name -> "行程设置"
     AppPage.LOCATE_MAP.name -> "当前位置"
-    else -> "同行"
+    else -> "行迹"
 }
 
 private fun tripUiState(trip: LocalTripSummary, latestAt: String?, now: Long): TripUiState {
@@ -2080,7 +2149,8 @@ private fun maxShareLabel(seconds: Int): String = when {
 
 private fun hasReliableSpeed(point: PositionEntity): Boolean {
     val speed = point.speedMps ?: return false
-    if (!speed.isFinite() || speed !in 0.0..120.0) return false
+    // A near-zero reading is noise on foot or in traffic; hide the row entirely.
+    if (!speed.isFinite() || speed !in 0.5..120.0) return false
     val accuracy = point.speedAccuracyMps
     return accuracy == null || (accuracy.isFinite() && accuracy in 0.0..5.0)
 }

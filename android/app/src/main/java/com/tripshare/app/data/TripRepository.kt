@@ -70,17 +70,36 @@ class TripRepository(context: Context) {
         require(settings.maxShareSeconds in MIN_SHARE_SECONDS..MAX_SHARE_SECONDS) { "共享时长设置无效" }
         val deviceApi = authenticatedApi()
         val sampleSeconds = if (settings.mode == TrackingMode.DETAILED) 60 else settings.sampleIntervalSec
-        val response = deviceApi.createTrip(
-            CreateTripRequest(
-                origin = origin?.toDto(),
-                destination = destination?.toDto(),
-                sampleIntervalSec = sampleSeconds,
-                uploadIntervalSec = settings.uploadIntervalSec,
-                mode = settings.mode.wireValue,
-                maxShareSeconds = settings.maxShareSeconds,
-                mapProvider = mapProvider.wireValue
+        val response = try {
+            deviceApi.createTrip(
+                CreateTripRequest(
+                    origin = origin?.toDto(),
+                    destination = destination?.toDto(),
+                    sampleIntervalSec = sampleSeconds,
+                    uploadIntervalSec = settings.uploadIntervalSec,
+                    mode = settings.mode.wireValue,
+                    maxShareSeconds = settings.maxShareSeconds,
+                    mapProvider = mapProvider.wireValue
+                )
             )
-        )
+        } catch (rejected: retrofit2.HttpException) {
+            // Servers older than mapProvider support run a strict schema and reject
+            // the unknown field; create the trip without it instead of failing.
+            if (rejected.code() == 400 && mapProvider != MapProvider.OSM) {
+                deviceApi.createTrip(
+                    CreateTripRequest(
+                        origin = origin?.toDto(),
+                        destination = destination?.toDto(),
+                        sampleIntervalSec = sampleSeconds,
+                        uploadIntervalSec = settings.uploadIntervalSec,
+                        mode = settings.mode.wireValue,
+                        maxShareSeconds = settings.maxShareSeconds
+                    )
+                )
+            } else {
+                throw rejected
+            }
+        }
         val shareUrl = response.shareUrl ?: response.trip.shareUrl
         if (!shareUrl.isNullOrBlank() && apiFactory.isSafeShareUrl(shareUrl)) {
             credentials.saveShareUrl(response.trip.id, shareUrl)

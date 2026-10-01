@@ -43,7 +43,8 @@ function tripState(status: 'active' | 'ended', latestAt: string | null, uploadIn
 
 function reliableSpeed(position: Position | null, state: TripUiState): number | null {
   if (state !== 'ACTIVE' || !position || position.speedMps === null) return null;
-  if (!Number.isFinite(position.speedMps) || position.speedMps < 0 || position.speedMps > 111.1) return null;
+  // Near-zero readings are noise; hide the row instead of showing 0 km/h.
+  if (!Number.isFinite(position.speedMps) || position.speedMps < 0.5 || position.speedMps > 111.1) return null;
   if (position.speedAccuracyMps !== null && (!Number.isFinite(position.speedAccuracyMps) || position.speedAccuracyMps > 3)) return null;
   return Math.round(position.speedMps * 3.6);
 }
@@ -85,7 +86,7 @@ export function SharePage({ token }: { token: string }) {
       <main className="message-page">
         <section className="message-card">
           <ShieldCheck className="message-icon" size={25} strokeWidth={1.6} />
-          <span className="eyebrow">同行</span>
+          <span className="eyebrow">行迹</span>
           <h1>{error?.includes('无效') || error?.includes('撤销') || error?.includes('过期') ? '分享链接不可用' : '暂时无法查看行程'}</h1>
           <p>{error ?? '请检查网络连接后重试。'}</p>
           <button className="primary-button" type="button" onClick={() => void retry()}>
@@ -124,7 +125,7 @@ export function SharePage({ token }: { token: string }) {
       <header className="topbar">
         <div className="brand-lockup">
           <MapPin className="brand-icon" size={28} fill="currentColor" strokeWidth={1.6} aria-hidden="true" />
-          <strong>同行</strong>
+          <strong>行迹</strong>
         </div>
         <div className="private-note"><Link2 size={17} strokeWidth={1.8} /><span>仅凭链接查看</span></div>
       </header>
