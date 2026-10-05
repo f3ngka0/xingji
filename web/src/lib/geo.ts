@@ -1,5 +1,15 @@
 import type { Position } from '../types';
 
+/** WGS-84 coordinates to a straight-line surface distance, independent of the map provider. */
+export function greatCircleDistanceKm(from: { lat: number; lon: number }, to: { lat: number; lon: number }) {
+  const radians = Math.PI / 180;
+  const latitudeDelta = (to.lat - from.lat) * radians;
+  const longitudeDelta = (to.lon - from.lon) * radians;
+  const halfChord = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(from.lat * radians) * Math.cos(to.lat * radians) * Math.sin(longitudeDelta / 2) ** 2;
+  return 2 * 6371.0088 * Math.asin(Math.sqrt(Math.min(1, Math.max(0, halfChord))));
+}
+
 const EARTH_A = 6_378_245;
 const ECCENTRICITY_SQUARED = 0.00669342162296594323;
 

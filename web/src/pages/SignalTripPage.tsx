@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, ShieldCheck } from 'lucide-react';
 import { TripMap } from '../components/TripMap';
-import { sortPositions } from '../lib/geo';
+import { greatCircleDistanceKm, sortPositions } from '../lib/geo';
 import { useTripData } from '../lib/useTripData';
 import type { Position, TripUiState } from '../types';
 import './signal.css';
@@ -35,6 +35,14 @@ function reliableSpeed(position: Position | null, state: TripUiState): number | 
   if (position.speedAccuracyMps !== null && (!Number.isFinite(position.speedAccuracyMps) || position.speedAccuracyMps > 3)) return null;
   return Math.round(position.speedMps * 3.6);
 }
+
+function shortOriginName(name: string | undefined) {
+  if (!name) return '起点未记录';
+  const area = name.split(/[·•，,]/)[0].trim();
+  return area.match(/^.*?(?:县|区|旗)/)?.[0] ?? area;
+}
+
+const DISTANCE = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 export function SignalTripPage({ token }: { token: string }) {
   const { trip, positions, state, error, retry, refresh } = useTripData(token);
@@ -77,7 +85,12 @@ export function SignalTripPage({ token }: { token: string }) {
   const shareState = tripState(trip.status, latestAt, trip.uploadIntervalSec, now);
   const hasPosition = latestObserved !== null;
   const location = hasPosition ? trip.latestPositionLabel ?? '位置暂未解析' : shareState === 'ENDED' ? '暂无位置记录' : '等待第一条位置';
-  const headlinePlace = location.includes('·') ? location.split('·').at(-1)!.trim() : location;
+  const remainingDistanceKm = trip.destination && latestObserved
+    ? greatCircleDistanceKm(latestObserved, trip.destination)
+    : null;
+  const totalDistanceKm = trip.origin && trip.destination
+    ? greatCircleDistanceKm(trip.origin, trip.destination)
+    : null;
   const [age, ageUnit] = relativeParts(latestAt, now);
   const speedKmh = reliableSpeed(latestObserved, shareState);
   const statusText = shareState === 'ENDED' ? '已结束' : shareState === 'STALE' ? '暂未更新' : hasPosition ? '共享中' : '等待位置';
@@ -110,33 +123,34 @@ export function SignalTripPage({ token }: { token: string }) {
         </header>
 
         <div className="signal-lead">
-          <span className="signal-eyebrow">{hasPosition ? '最近一次有效定位' : '行程位置共享'}</span>
-          <h1><span>{hasPosition ? '最近记录' : shareState === 'ENDED' ? '没有收到' : '等待首条'}</span><span>{hasPosition ? headlinePlace : '位置记录'}</span></h1>
-          {hasPosition && <p className="signal-place">{location}</p>}
+          <h1><span>{hasPosition ? '最近记录' : shareState === 'ENDED' ? '没有收到' : '等待首条'}</span><span>{hasPosition ? location : '位置记录'}</span></h1>
 
           <div className={`signal-time ${latestAt ? '' : 'is-empty'}`} aria-label={latestAt ? `最近更新：${age}${ageUnit}` : '尚无位置记录'}>
             <strong>{age}</strong><span>{ageUnit}</span>
           </div>
           <p className="signal-time-note">
             {exact ? `${exact} 记录` : '尚未收到有效位置'}
-            {shareState === 'ENDED' ? ' · 行程已结束' : shareState === 'STALE' ? ' · 等待下一次同步' : ' · 位置随行程自动更新'}
+            {shareState === 'ENDED' ? ' · 行程已结束' : shareState === 'STALE' ? ' · 等待下一次同步' : ''}
           </p>
           {error && <p className="signal-notice" role="status">暂时无法刷新，已收到的位置仍可查看。</p>}
         </div>
 
         <div className="signal-route">
-          <span className="signal-route-label">本次行程</span>
+          <span className="signal-route-label">本次行程{trip.destination && <small> · 直线距离</small>}</span>
           <div className="signal-route-line">
-            <span>{trip.origin?.name ?? '起点未记录'}</span>
-            <b aria-hidden="true" />
+            <span>{shortOriginName(trip.origin?.name)}</span>
+            <div className="signal-route-center">
+              {trip.destination && <span className="signal-route-distance">{remainingDistanceKm === null ? '等待位置' : `还剩 ${DISTANCE.format(remainingDistanceKm)} 公里`}</span>}
+              <b aria-hidden="true" />
+              {trip.destination && totalDistanceKm !== null && <span className="signal-route-distance">一共 {DISTANCE.format(totalDistanceKm)} 公里</span>}
+            </div>
             <span>{trip.destination?.name ?? '未设置目的地'}</span>
           </div>
-          <footer><span>仅凭链接查看</span><span>按实测位置展示</span></footer>
         </div>
       </section>
 
       <section className="signal-visual" aria-label="行程轨迹">
-        <div className="signal-visual-top"><strong>行程轨迹</strong><span>{trip.origin?.name && trip.destination?.name ? `${trip.origin.name} → ${trip.destination.name}` : trip.title || '位置共享'}</span></div>
+        <div className="signal-visual-top"><strong>行程轨迹</strong></div>
         <div className="signal-map">{map}</div>
         <div className="signal-visual-foot">
           <span className="signal-speed">{speedKmh === null ? '按最后一次有效定位展示' : <>时速约 <strong>{speedKmh}</strong> <small>km/h</small></>}</span>

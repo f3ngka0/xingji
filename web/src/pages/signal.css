@@ -27,10 +27,9 @@
 .signal-lead { min-width: 0; padding-top: clamp(30px, 6vh, 65px); }
 .signal-eyebrow { display: flex; align-items: center; gap: 12px; color: var(--signal-blue); font-size: 12px; font-weight: 800; letter-spacing: .21em; }
 .signal-eyebrow::before { content: ''; width: 22px; height: 2px; flex: 0 0 22px; background: currentColor; }
-.signal-lead h1 { display: flex; flex-direction: column; align-items: flex-start; margin: 22px 0 6px; font-weight: 900; letter-spacing: -.075em; line-height: 1.12; }
+.signal-lead h1 { display: flex; flex-direction: column; align-items: flex-start; margin: 0 0 6px; font-weight: 900; letter-spacing: -.075em; line-height: 1.12; }
 .signal-lead h1 span:first-child { font-size: clamp(43px, 5.6vw, 80px); }
 .signal-lead h1 span:last-child { max-width: 100%; overflow-wrap: anywhere; font-size: clamp(35px, 4.6vw, 65px); }
-.signal-place { margin: 13px 0 0; font-size: clamp(20px, 2.3vw, 32px); font-weight: 750; line-height: 1.25; overflow-wrap: anywhere; }
 .signal-time { display: flex; align-items: baseline; gap: 12px; margin-top: 34px; padding-top: 18px; border-top: 2px solid var(--signal-blue); }
 .signal-time strong { font-size: clamp(75px, 10vw, 150px); font-weight: 900; line-height: 1; letter-spacing: -.12em; font-variant-numeric: tabular-nums; }
 .signal-time strong:first-letter { letter-spacing: -.16em; }
@@ -41,16 +40,17 @@
 .signal-notice { margin: 13px 0 0; color: #9b392d; font-size: 13px; }
 .signal-route { margin-top: auto; padding-top: 32px; }
 .signal-route-label { color: var(--signal-muted); font-size: 12px; letter-spacing: .15em; }
+.signal-route-label small { font-size: inherit; }
 .signal-route-line { display: flex; align-items: center; gap: 20px; min-width: 0; margin-top: 13px; font-size: 21px; font-weight: 700; }
-.signal-route-line span { overflow-wrap: anywhere; }
-.signal-route-line b { position: relative; flex: 1 0 18px; height: 2px; min-width: 18px; background: var(--signal-blue); }
-.signal-route-line b::after { content: ''; position: absolute; top: -5px; right: 0; border: 6px solid transparent; border-left-color: var(--signal-blue); }
-.signal-route footer { display: flex; justify-content: space-between; gap: 15px; margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--signal-line); color: var(--signal-muted); font-size: 12px; }
+.signal-route-line > span { min-width: 0; overflow-wrap: anywhere; }
+.signal-route-center { display: flex; flex: 1 1 100px; flex-direction: column; align-items: center; gap: 5px; min-width: 100px; }
+.signal-route-center b { position: relative; width: 100%; height: 2px; background: var(--signal-blue); }
+.signal-route-center b::after { content: ''; position: absolute; top: -5px; right: 0; border: 6px solid transparent; border-left-color: var(--signal-blue); }
+.signal-route-distance { color: var(--signal-muted); font-size: 14px; font-weight: 700; white-space: nowrap; }
 
 .signal-visual { display: flex; flex-direction: column; min-width: 0; min-height: calc(100vh - 9px); min-height: calc(100dvh - 9px); padding: 23px 24px 24px; background: var(--signal-blue); color: #fff; }
 .signal-visual-top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 0 2px 19px; font-size: 13px; letter-spacing: .08em; }
 .signal-visual-top strong { flex: 0 0 auto; font-size: 14px; }
-.signal-visual-top span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .signal-map { position: relative; flex: 1 1 auto; min-height: 440px; overflow: hidden; border: 9px solid var(--signal-yellow); background: #b8ceb1; }
 .signal-map .map-stage { width: 100%; height: 100%; min-height: 100%; border: 0; border-radius: 0; }
 .signal-map .leaflet-tile-pane { filter: saturate(.65) contrast(1.08); }
@@ -75,15 +75,14 @@
   .signal-info { padding: 19px 22px 24px; }
   .signal-top { padding-bottom: 15px; }
   .signal-lead { padding-top: 30px; }
-  .signal-lead h1 { margin-top: 18px; }
+  .signal-lead h1 { margin-top: 0; }
   .signal-lead h1 span:first-child { font-size: 48px; }
   .signal-lead h1 span:last-child { font-size: 46px; }
-  .signal-place { font-size: 25px; }
   .signal-time { margin-top: 20px; }
   .signal-time strong { font-size: 93px; }
   .signal-route { padding-top: 30px; }
   .signal-route-line { gap: 9px; font-size: 15px; }
-  .signal-route footer { margin-top: 20px; }
+  .signal-route-distance { font-size: 13px; }
   .signal-visual { min-height: 380px; padding: 16px; }
   .signal-visual-top { padding-bottom: 10px; }
   .signal-map { min-height: 260px; }
@@ -92,7 +91,6 @@
 
 @media (max-width: 420px) {
   .signal-lead h1 span:last-child { font-size: 39px; }
-  .signal-place { font-size: 22px; }
   .signal-time-note { font-size: 12px; }
 }
 

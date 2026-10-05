@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { getLongGapThresholdMs, sortPositions, wgs84ToGcj02 } from '../.test-dist/lib/geo.js';
+import { getLongGapThresholdMs, greatCircleDistanceKm, sortPositions, wgs84ToGcj02 } from '../.test-dist/lib/geo.js';
 import { providerForTrip, providerFallsBackToOsm } from '../.test-dist/lib/mapProvider.js';
 import { PositionsResponseSchema, PublicTripResponseSchema, PublicTripSchema } from '../.test-dist/types.js';
 
@@ -46,6 +46,16 @@ test('sorts late offline points by capture time and uses ID for ties', () => {
 test('uses at least five minutes as the dashed-gap threshold', () => {
   assert.equal(getLongGapThresholdMs(60), 300_000);
   assert.equal(getLongGapThresholdMs(300), 720_000);
+});
+
+test('updates straight-line distance from the latest position while keeping the trip total fixed', () => {
+  const origin = { lat: 0, lon: 0 };
+  const destination = { lat: 0, lon: 1 };
+  const total = greatCircleDistanceKm(origin, destination);
+  const remaining = greatCircleDistanceKm({ lat: 0, lon: 0.5 }, destination);
+  assert.ok(Math.abs(total - 111.195) < 0.01);
+  assert.ok(Math.abs(remaining - total / 2) < 0.001);
+  assert.equal(greatCircleDistanceKm(destination, destination), 0);
 });
 
 test('accepts a trip without an origin or destination', () => {
