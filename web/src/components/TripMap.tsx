@@ -110,6 +110,22 @@ export function TripMap({ token, trip, positions, currentPositionId, livePositio
     // Each share token owns one map instance; trip data changes redraw overlays below.
   }, [token, mapAttempt, requestedProvider]);
 
+  // The map container is sized by CSS (grid/absolute layout); Leaflet caches the
+  // box it saw at init, which can be a stale, wider box while the shell is still
+  // laying out — that leaves tiles unrendered at the right edge. Re-measure
+  // whenever the container actually changes size.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(() => {
+      const map = leafletMapRef.current;
+      if (map) map.invalidateSize({ animate: false });
+      amapMapRef.current?.resize?.();
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     if (!mapLoaded) return;
     if (mapProvider === 'amap' && amapMapRef.current && window.AMap) {

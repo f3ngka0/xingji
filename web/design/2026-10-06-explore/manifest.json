@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "project": "行迹 · 家人端分享页",
+  "brief": "家人打开只读链接，先确认最近的有效位置和更新时刻，再查看实际轨迹；五个候选使用同一段演示行程。",
+  "round": "01",
+  "serve": {
+    "command": "npm.cmd run dev -- --host 127.0.0.1 --port 5173",
+    "cwd": "D:\\code\\projectbpa\\web",
+    "url": "http://127.0.0.1:5173"
+  },
+  "candidates": [
+    {
+      "id": "classic",
+      "name": "现状 · 灰度分栏",
+      "concept": "地图与摘要并排，先看全局，再读单项信息。",
+      "typography": "系统无衬线；标题约 32px，数据约 24px。",
+      "palette": ["#ffffff", "#191919", "#285348"],
+      "traits": ["地图与信息固定分栏", "中性灰度", "逐项纵向读数"],
+      "baseline": true,
+      "kind": "image",
+      "source": "baseline/page.png"
+    },
+    {
+      "id": "atlas",
+      "name": "折叠图志",
+      "concept": "把行程摊成一页图志，让地图像旅途的正文。",
+      "typography": "宋体大标题，单色等宽读数，正文无衬线。",
+      "palette": ["#f3eee4", "#14120e", "#c97a16"],
+      "traits": ["通栏大标题", "横向地图带", "纸张与标注语法"],
+      "kind": "url",
+      "url": "http://127.0.0.1:5173/trip/demo?ui=atlas"
+    },
+    {
+      "id": "inlay",
+      "name": "中轴读数",
+      "concept": "把当前所在嵌进一条纵向时间轴，传达安静而明确的状态。",
+      "typography": "无衬线巨型标题，等宽小读数。",
+      "palette": ["#0a0d13", "#e9eef6", "#56e3c6"],
+      "traits": ["深色居中构图", "青色仅标当前位置", "地图作为中轴窗口"],
+      "kind": "url",
+      "url": "http://127.0.0.1:5173/trip/demo?ui=inlay"
+    },
+    {
+      "id": "map-first",
+      "name": "地图即现场",
+      "concept": "家人一打开就置身地图，关键读数贴在地图边缘。",
+      "typography": "系统无衬线；信息条标题 25px，当前位置 26px。",
+      "palette": ["#f7faf6", "#102b29", "#187965"],
+      "traits": ["地图铺满视口", "底部浮动读数", "位置标记始终可见"],
+      "kind": "html",
+      "source": "map-first.html"
+    },
+    {
+      "id": "signal-board",
+      "name": "路牌读数",
+      "concept": "先读清人在哪里、多久前更新，再用地图核对路线。",
+      "typography": "重磅无衬线，数字 150px 上限，小号信息字距加宽。",
+      "palette": ["#f3f1e8", "#162c9c", "#dce86a"],
+      "traits": ["最近位置与时间为主角", "交通路牌色块", "地图独立成右侧视窗"],
+      "kind": "html",
+      "source": "signal-board.html"
+    },
+    {
+      "id": "family-note",
+      "name": "家人便笺",
+      "concept": "让一次位置更新像一张写给家人的便笺，信息读完再看地图。",
+      "typography": "圆润系统无衬线；大标题 79px 上限，说明 17px。",
+      "palette": ["#e9f2ec", "#203c38", "#ed755a"],
+      "traits": ["自然语言标题", "温和低密度", "地图像夹在便笺里的照片"],
+      "kind": "html",
+      "source": "family-note.html"
+    }
+  ]
+}

@@ -1,0 +1,573 @@
+/* 方向 02「中轴 · 内嵌读数」（INLAY）
+   种子派生（原文不出现在任何地方，只作为起点）：
+   · 九个数字无一独立成词，全部被字母夹在中间 → 读数是"嵌"进版面的镶嵌物，不是浮在角落的标签；
+   · 字符串长度与其数字之和互为镜像 → 版面关于一条中轴左右成对；
+   · 三个孤立点 + 一簇三连、三处回文结构 → 一个中心、两翼对称、三点一线；
+   · 三枚 0 → 全页只留空心环，青色只属于"现在"。
+   基础单位 6px · 眉标字距 .27em · 行高 1.72 · 内容宽 1152px。
+   全部选择器挂在 .inlay-shell 下，与 styles.css / atlas.css 互不污染。 */
+
+.inlay-shell {
+  --void: #0a0d13;
+  --deck: #10141c;
+  --paper: #e9eef6;
+  --dim: #808b9d;
+  --faint: #4b5464;
+  --line: rgb(233 238 246 / 14%);
+  --line-soft: rgb(233 238 246 / 7%);
+  --zero: #56e3c6;
+  --mono: ui-monospace, 'Cascadia Mono', Consolas, 'Courier New', monospace;
+  --ease: cubic-bezier(.22, 1, .36, 1);
+
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--void);
+  color: var(--paper);
+  font-family: 'Noto Sans SC', 'Noto Sans', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 15px;
+  line-height: 1.72;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.inlay-shell *,
+.inlay-shell *::before,
+.inlay-shell *::after { box-sizing: border-box; }
+
+/* 深色页面在橡皮筋回弹时不该露出浅色底 */
+html:has(.inlay-shell),
+body:has(.inlay-shell) { background: #0a0d13; }
+
+.inlay-mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 页眉：一条细横线，两端各一句话 ---------- */
+.inlay-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  padding: 0 clamp(18px, 4vw, 40px);
+  height: 46px;
+  flex: 0 0 46px;
+  border-bottom: 1px solid var(--line-soft);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .18em;
+}
+
+.inlay-top-brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  color: var(--paper);
+}
+
+.inlay-top-brand b { font-weight: 600; }
+
+.inlay-sep { color: var(--faint); }
+
+.inlay-top-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px 18px;
+  color: var(--dim);
+}
+
+.inlay-top-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  letter-spacing: .12em;
+}
+
+.inlay-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 13px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  color: var(--dim);
+  background: transparent;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .16em;
+  cursor: pointer;
+  transition: color 180ms var(--ease), border-color 180ms var(--ease), background-color 180ms var(--ease);
+}
+
+.inlay-refresh:hover { color: var(--paper); border-color: rgb(233 238 246 / 32%); }
+.inlay-refresh:disabled { color: var(--faint); border-color: var(--line-soft); cursor: default; }
+
+/* ---------- 舞台与中轴 ---------- */
+.inlay-stage {
+  position: relative;
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
+
+/* 贯穿整页的一条细线。它是版面的脊柱：上面坐着标题，中间穿过地图，下面挂住两端。 */
+.inlay-axis {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  z-index: 0;
+  width: 1px;
+  margin-left: -.5px;
+  background: linear-gradient(180deg, transparent, var(--line) 7%, var(--line) 92%, transparent);
+  transform-origin: top center;
+  animation: inlay-spine 900ms var(--ease) both;
+  pointer-events: none;
+}
+
+.inlay-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 1152px);
+  padding: 0 clamp(18px, 4vw, 56px) clamp(16px, 2.4vh, 26px);
+}
+
+/* ---------- 标题：大字压在轴上，字距之间能看见那条线 ---------- */
+.inlay-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: clamp(26px, 5.4vh, 62px) 0 clamp(20px, 3.4vh, 38px);
+  text-align: center;
+}
+
+.inlay-eyebrow {
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .27em;
+}
+
+.inlay-title {
+  margin: 0;
+  color: var(--paper);
+  font-size: clamp(34px, 5.6vw, 76px);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: .06em;
+  text-indent: .06em;
+  overflow-wrap: anywhere;
+  animation: inlay-settle 620ms var(--ease) both;
+}
+
+.inlay-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: .16em;
+}
+
+.inlay-pair::before,
+.inlay-pair::after {
+  content: '';
+  width: 34px;
+  height: 1px;
+  background: var(--line);
+}
+
+/* ---------- 现在：全页唯一的大读数，坐在轴上 ---------- */
+.inlay-now {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 0 0 clamp(22px, 3.6vh, 40px);
+  text-align: center;
+  animation: inlay-settle 700ms var(--ease) 60ms both;
+}
+
+/* 一个空洞的圆环：全页的"零"，也是唯一被点亮的节点 */
+.inlay-now-node {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-bottom: 3px;
+  border: 1.5px solid var(--faint);
+  border-radius: 50%;
+}
+
+.inlay-now-node i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.inlay-now.is-live .inlay-now-node {
+  border-color: var(--zero);
+  box-shadow: 0 0 0 6px rgb(86 227 198 / 8%);
+}
+
+.inlay-now.is-live .inlay-now-node i { background: var(--zero); }
+
+/* 只有一个地方允许呼吸 */
+.inlay-now.is-live .inlay-now-node::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border: 1px solid rgb(86 227 198 / 45%);
+  border-radius: 50%;
+  animation: inlay-pulse 2600ms var(--ease) infinite;
+}
+
+.inlay-now-key {
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .27em;
+}
+
+.inlay-now-value {
+  color: var(--paper);
+  font-size: clamp(24px, 2.6vw, 38px);
+  font-weight: 600;
+  line-height: 1.28;
+  letter-spacing: -.005em;
+  overflow-wrap: anywhere;
+}
+
+.inlay-now.is-live .inlay-now-value { color: var(--zero); }
+
+.inlay-now-meta {
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: .12em;
+}
+
+/* ---------- 地图：版面上唯一发亮的一扇窗 ---------- */
+.inlay-band {
+  position: relative;
+  animation: inlay-settle 820ms var(--ease) 140ms both;
+}
+
+.inlay-band-frame {
+  position: relative;
+  height: clamp(240px, 40vh, 430px);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: #0e131b;
+  box-shadow: 0 34px 74px -58px #000;
+}
+
+.inlay-band-frame .map-stage {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: 0;
+  background: #e9e9e4;
+}
+
+/* 底图（唯一一块亮面）稍微收一点彩度，免得和整页争 */
+.inlay-band-frame .leaflet-tile-pane { filter: saturate(.86) contrast(1.03) brightness(1.01); }
+
+.inlay-band-frame .leaflet-control-attribution {
+  border-radius: 2px 0 0 !important;
+  color: #9aa3b1 !important;
+  background: rgb(10 13 19 / 76%) !important;
+}
+
+.inlay-band-frame .leaflet-control-attribution a { color: #c9d2df !important; }
+
+.inlay-band-frame .map-loading,
+.inlay-band-frame .map-message,
+.inlay-band-frame .map-empty-hint,
+.inlay-band-frame .map-point-hint,
+.inlay-band-frame .map-provider-note {
+  border-color: var(--line);
+  border-radius: 2px;
+  color: var(--dim);
+  background: rgb(10 13 19 / 88%);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: .06em;
+}
+
+.inlay-band-frame .map-message strong { color: var(--paper); }
+.inlay-band-frame .map-message p { color: var(--dim); }
+.inlay-band-frame .map-message-icon,
+.inlay-band-frame .map-point-hint strong { color: var(--paper); }
+.inlay-band-frame .text-button { color: var(--paper); }
+
+/* 施工线：中轴跨过地图时改成虚线，读起来像一条铅垂线而不是一条切割线 */
+.inlay-band-line {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background-image: repeating-linear-gradient(180deg, rgb(233 238 246 / 30%) 0 1px, transparent 1px 7px);
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 18%, #000 82%, transparent);
+  mask-image: linear-gradient(180deg, transparent, #000 18%, #000 82%, transparent);
+}
+
+/* ---------- 两端：一左一右挂在中轴上 ---------- */
+.inlay-ends {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 1px;
+  padding: clamp(22px, 3.6vh, 38px) 0 0;
+}
+
+.inlay-end {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.inlay-end.is-from { align-items: flex-end; padding-right: clamp(22px, 5vw, 74px); text-align: right; }
+.inlay-end.is-to { align-items: flex-start; padding-left: clamp(22px, 5vw, 74px); text-align: left; }
+
+/* 从两端向中轴伸出的一小段引线，让两翼和中轴接上 */
+.inlay-end.is-from::after,
+.inlay-end.is-to::after {
+  content: '';
+  position: absolute;
+  top: 34px;
+  width: clamp(14px, 3.4vw, 52px);
+  height: 1px;
+  background: var(--line);
+}
+
+.inlay-end.is-from::after { right: 0; }
+.inlay-end.is-to::after { left: 0; }
+
+.inlay-end-key {
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .27em;
+}
+
+.inlay-end-value {
+  color: var(--paper);
+  font-size: clamp(17px, 1.7vw, 23px);
+  font-weight: 600;
+  line-height: 1.42;
+  overflow-wrap: anywhere;
+}
+
+.inlay-end-meta {
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .1em;
+}
+
+/* ---------- 读数：两块嵌进纸面的铭牌，分列中轴两侧 ---------- */
+.inlay-plates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 1px;
+  margin-top: clamp(22px, 3.6vh, 38px);
+  padding-top: clamp(18px, 2.8vh, 28px);
+  border-top: 1px solid var(--line-soft);
+}
+
+.inlay-plate {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 0 clamp(20px, 5vw, 74px);
+}
+
+.inlay-plate.is-left { align-items: flex-end; text-align: right; }
+.inlay-plate.is-right { align-items: flex-start; text-align: left; }
+
+.inlay-plate-key {
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .27em;
+}
+
+/* 数字被嵌在细线圈里：横竖各一道内影，像压进纸面 */
+.inlay-plate-val {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 15px 6px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: clamp(19px, 2vw, 26px);
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: .01em;
+  box-shadow: inset 0 1px 0 rgb(233 238 246 / 6%), inset 0 -1px 0 rgb(0 0 0 / 45%);
+}
+
+.inlay-plate-val em {
+  margin-left: 2px;
+  color: var(--dim);
+  font-size: .5em;
+  font-style: normal;
+  font-weight: 500;
+  letter-spacing: .12em;
+}
+
+/* 青色只出现在"现在"这一侧 */
+.inlay-plate.is-now .inlay-plate-val {
+  border-color: rgb(86 227 198 / 38%);
+  color: var(--zero);
+  box-shadow: inset 0 1px 0 rgb(86 227 198 / 10%), 0 0 0 4px rgb(86 227 198 / 4%);
+}
+
+.inlay-notice {
+  margin: clamp(16px, 2.4vh, 24px) 0 0;
+  padding: 9px 14px;
+  border-left: 2px solid var(--zero);
+  color: var(--dim);
+  background: rgb(86 227 198 / 5%);
+  font-size: 12.5px;
+  text-align: left;
+}
+
+/* ---------- 页脚：一条横线收口 ---------- */
+.inlay-foot {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 22px;
+  flex-wrap: wrap;
+  padding: 12px clamp(18px, 4vw, 40px) 14px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .12em;
+  text-align: center;
+}
+
+.inlay-foot b { color: var(--paper); font-weight: 600; }
+
+/* ---------- 加载 / 失效页 ---------- */
+.inlay-shell.inlay-static {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.inlay-loading {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: .16em;
+  text-align: center;
+}
+
+.inlay-loading p { margin: 0; }
+
+.inlay-mark { width: 28px; height: 28px; color: var(--paper); }
+
+.inlay-message {
+  display: grid;
+  justify-items: center;
+  gap: 11px;
+  width: min(100%, 420px);
+  padding: 38px 32px 32px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--deck);
+  text-align: center;
+}
+
+.inlay-message svg { color: var(--dim); }
+
+.inlay-message h1 {
+  margin: 4px 0 0;
+  color: var(--paper);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+.inlay-message p { margin: 0 0 6px; color: var(--dim); font-size: 13px; }
+
+/* ---------- 动效：轴画下来 / 落定 / 只在"现在"呼吸 ---------- */
+@keyframes inlay-spine {
+  from { transform: scaleY(0); opacity: .3; }
+  to { transform: scaleY(1); opacity: 1; }
+}
+
+@keyframes inlay-settle {
+  from { transform: translateY(6px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes inlay-pulse {
+  0% { transform: scale(1); opacity: .55; }
+  70% { transform: scale(1.9); opacity: 0; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+
+/* ---------- 窄屏：同一套顺序本来就好读，只收紧尺度 ---------- */
+@media (max-width: 860px) {
+  .inlay-top { height: 42px; flex-basis: 42px; padding: 0 16px; font-size: 10px; letter-spacing: .14em; }
+  .inlay-top-note { display: none; }
+  .inlay-content { padding: 0 18px 18px; }
+  .inlay-head { padding: 22px 0 18px; gap: 9px; }
+  .inlay-title { font-size: clamp(28px, 8.6vw, 40px); letter-spacing: .04em; text-indent: .04em; }
+  .inlay-pair { font-size: 11px; letter-spacing: .1em; }
+  .inlay-pair::before, .inlay-pair::after { width: 18px; }
+  .inlay-now { padding-bottom: 20px; gap: 7px; }
+  .inlay-now-value { font-size: 25px; }
+  .inlay-band-frame { height: clamp(190px, 36vh, 300px); }
+  .inlay-ends { padding-top: 20px; }
+  .inlay-end.is-from { padding-right: 18px; }
+  .inlay-end.is-to { padding-left: 18px; }
+  .inlay-end.is-from::after, .inlay-end.is-to::after { display: none; }
+  .inlay-end-value { font-size: 15px; }
+  .inlay-plates { margin-top: 20px; padding-top: 16px; gap: 0 12px; }
+  .inlay-plate { padding: 0; }
+  .inlay-plate.is-left { align-items: flex-start; text-align: left; }
+  .inlay-plate-val { font-size: 18px; padding: 4px 11px 5px; }
+  .inlay-foot { padding: 10px 16px 12px; gap: 2px 14px; font-size: 10px; letter-spacing: .08em; }
+}
+
+@media (max-width: 400px) {
+  .inlay-title { font-size: 27px; }
+  .inlay-end-value { font-size: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inlay-axis,
+  .inlay-title,
+  .inlay-now,
+  .inlay-band,
+  .inlay-now.is-live .inlay-now-node::after { animation: none; }
+}

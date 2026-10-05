@@ -20,6 +20,8 @@ export interface AMapInstance {
   setFitView(overlays?: AMapOverlay[], immediately?: boolean, padding?: number[]): void;
   setCenter(position: LngLat): void;
   setZoom(zoom: number): void;
+  /** 容器尺寸变化后重新量取画布；高德实例上有这个方法，类型里显式声明为可选。 */
+  resize?(): void;
   destroy(): void;
 }
 
